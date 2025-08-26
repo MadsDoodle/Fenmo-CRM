@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Next Action Workflow</title>
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; }
+        .error { color: red; }
+        .success { color: green; }
+        button { padding: 10px 15px; margin: 5px; cursor: pointer; }
+        pre { background: #f5f5f5; padding: 10px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>Test Next Action Workflow</h1>
+    
+    <div class="section">
+        <h2>1. Test Calculate Next Action Function</h2>
+        <button onclick="testCalculateNextAction()">Test Function</button>
+        <div id="calc-result"></div>
+    </div>
+
+    <div class="section">
+        <h2>2. Check Followup Rules</h2>
+        <button onclick="checkFollowupRules()">Check Rules</button>
+        <div id="rules-result"></div>
+    </div>
+
+    <div class="section">
+        <h2>3. Test Status Update Workflow</h2>
+        <input type="text" id="contact-id" placeholder="Contact ID" style="width: 300px;">
+        <select id="new-status">
+            <option value="follow_up_1">Follow Up 1</option>
+            <option value="newsletter_1">Newsletter 1</option>
+            <option value="value_prop">Value Prop</option>
+            <option value="contacted">Contacted</option>
+            <option value="replied">Replied</option>
+        </select>
+        <button onclick="testStatusUpdate()">Update Status</button>
+        <div id="status-result"></div>
+    </div>
+
+    <script>
+        const SUPABASE_URL = "https://igenkbdgctezmzicxhgy.supabase.co";
+        const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlnZW5rYmRnY3Rlem16aWN4aGd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUyMTk3ODUsImV4cCI6MjA3MDc5NTc4NX0._p5ZRHOOaNLsdOB65Ixr7uanRXY8QGS1wTlLhiGSVvA";
+        
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        
+        async function testCalculateNextAction() {
+            try {
+                // Get a sample contact first
+                const { data: contacts, error: contactError } = await supabase
+                    .from('master')
+                    .select('id, name, outreach_status, channel, channel_from')
+                    .limit(1);
+                
+                if (contactError) throw contactError;
+                if (!contacts || contacts.length === 0) {
+                    document.getElementById('calc-result').innerHTML = '<span class="error">No contacts found</span>';
+                    return;
+                }
+                
+                const contact = contacts[0];
+                console.log('Testing with contact:', contact);
+                
+                const { data: result, error } = await supabase.rpc('calculate_next_action', {
+                    p_contact_id: contact.id,
+                    p_custom_days: null,
+                    p_channel: 'linkedin'
+                });
+                
+                if (error) throw error;
+                
+                document.getElementById('calc-result').innerHTML = `
+                    <div class="success">✅ Function executed successfully</div>
+                    <pre>Contact: ${contact.name} (${contact.id})
+Status: ${contact.outreach_status}
+Channel: ${contact.channel || 'null'}
+Channel From: ${contact.channel_from || 'null'}
+Result: ${JSON.stringify(result, null, 2)}</pre>
+                `;
+                
+            } catch (err) {
+                document.getElementById('calc-result').innerHTML = `<span class="error">Error: ${err.message}</span>`;
+                console.error('Calculate next action error:', err);
+            }
+        }
+        
+        async function checkFollowupRules() {
+            try {
+                const { data: rules, error } = await supabase
+                    .from('followup_rules')
+                    .select('*')
+                    .order('channel, outreach_status');
+                
+                if (error) throw error;
+                
+                let html = `<div class="success">Found ${rules.length} followup rules</div><pre>`;
+                rules.forEach(rule => {
+                    html += `Channel: ${rule.channel}, Status: ${rule.outreach_status}, Days: ${rule.default_days}, Next Action: ${rule.next_action || 'null'}\n`;
+                });
+                html += '</pre>';
+                
+                document.getElementById('rules-result').innerHTML = html;
+                
+            } catch (err) {
+                document.getElementById('rules-result').innerHTML = `<span class="error">Error: ${err.message}</span>`;
+            }
+        }
+        
+        async function testStatusUpdate() {
+            const contactId = document.getElementById('contact-id').value;
+            const newStatus = document.getElementById('new-status').value;
+            
+            if (!contactId) {
+                document.getElementById('status-result').innerHTML = '<span class="error">Please enter a contact ID</span>';
+                return;
+            }
+            
+            try {
+                // Update status
+                const { error: updateError } = await supabase
+                    .from('master')
+                    .update({ 
+                        outreach_status: newStatus,
+                        last_action_date: new Date().toISOString()
+                    })
+                    .eq('id', contactId);
+                
+                if (updateError) throw updateError;
+                
+                // Calculate next action
+                const { data: result, error: calcError } = await supabase.rpc('calculate_next_action', {
+                    p_contact_id: contactId,
+                    p_custom_days: null,
+                    p_channel: 'linkedin'
+                });
+                
+                if (calcError) throw calcError;
+                
+                // Get updated record
+                const { data: updated, error: fetchError } = await supabase
+                    .from('master')
+                    .select('name, outreach_status, next_action_date, next_action_status, channel_from')
+                    .eq('id', contactId)
+                    .single();
+                
+                if (fetchError) throw fetchError;
+                
+                document.getElementById('status-result').innerHTML = `
+                    <div class="success">✅ Status updated successfully</div>
+                    <pre>Contact: ${updated.name}
+New Status: ${updated.outreach_status}
+Next Action Date: ${updated.next_action_date}
+Next Action Status: ${updated.next_action_status}
+Channel From: ${updated.channel_from || 'null'}
+Calculate Result: ${JSON.stringify(result, null, 2)}</pre>
+                `;
+                
+            } catch (err) {
+                document.getElementById('status-result').innerHTML = `<span class="error">Error: ${err.message}</span>`;
+                console.error('Status update error:', err);
+            }
+        }
+    </script>
+</body>
+</html>

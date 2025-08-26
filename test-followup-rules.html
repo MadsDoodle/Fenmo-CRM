@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Followup Rules Workflow</title>
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; }
+        .error { color: red; }
+        .success { color: green; }
+        button { padding: 10px 15px; margin: 5px; cursor: pointer; }
+        pre { background: #f5f5f5; padding: 10px; overflow-x: auto; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+    </style>
+</head>
+<body>
+    <h1>Test Followup Rules Workflow</h1>
+    
+    <div class="section">
+        <h2>1. Check Followup Rules Data</h2>
+        <button onclick="checkFollowupRules()">Check Rules</button>
+        <div id="rules-result"></div>
+    </div>
+
+    <div class="section">
+        <h2>2. Test Status-Channel Lookup</h2>
+        <select id="test-status">
+            <option value="follow_up_1">Follow Up 1</option>
+            <option value="newsletter_1">Newsletter 1</option>
+            <option value="value_prop">Value Prop</option>
+            <option value="intro_msg">Intro Msg</option>
+            <option value="accepted">Accepted</option>
+        </select>
+        <select id="test-channel">
+            <option value="linkedin">LinkedIn</option>
+            <option value="email">Email</option>
+            <option value="phone">Phone</option>
+        </select>
+        <button onclick="testStatusChannelLookup()">Test Lookup</button>
+        <div id="lookup-result"></div>
+    </div>
+
+    <div class="section">
+        <h2>3. Test Function Directly</h2>
+        <input type="text" id="direct-contact-id" placeholder="Contact ID" style="width: 300px;">
+        <select id="direct-channel">
+            <option value="linkedin">LinkedIn</option>
+            <option value="email">Email</option>
+            <option value="phone">Phone</option>
+        </select>
+        <button onclick="testFunctionDirectly()">Test Function Only</button>
+        <div id="direct-result"></div>
+    </div>
+
+    <div class="section">
+        <h2>4. Test Complete Workflow</h2>
+        <input type="text" id="contact-id" placeholder="Contact ID" style="width: 300px;">
+        <select id="new-channel">
+            <option value="linkedin">LinkedIn</option>
+            <option value="email">Email</option>
+            <option value="phone">Phone</option>
+        </select>
+        <select id="new-status">
+            <option value="follow_up_1">Follow Up 1</option>
+            <option value="newsletter_1">Newsletter 1</option>
+            <option value="value_prop">Value Prop</option>
+            <option value="intro_msg">Intro Msg</option>
+            <option value="accepted">Accepted</option>
+        </select>
+        <button onclick="testCompleteWorkflow()">Test Complete Workflow</button>
+        <div id="workflow-result"></div>
+    </div>
+
+    <div class="section">
+        <h2>5. Check Master Table Values</h2>
+        <input type="text" id="check-contact-id" placeholder="Contact ID" style="width: 300px;">
+        <button onclick="checkMasterValues()">Check Current Values</button>
+        <div id="check-result"></div>
+    </div>
+
+    <script>
+        const SUPABASE_URL = "https://igenkbdgctezmzicxhgy.supabase.co";
+        const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlnZW5rYmRnY3Rlem16aWN4aGd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUyMTk3ODUsImV4cCI6MjA3MDc5NTc4NX0._p5ZRHOOaNLsdOB65Ixr7uanRXY8QGS1wTlLhiGSVvA";
+        
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        
+        async function checkFollowupRules() {
+            try {
+                const { data: rules, error } = await supabase
+                    .from('followup_rules')
+                    .select('*')
+                    .order('channel, outreach_status, channel_sequence');
+                
+                if (error) throw error;
+                
+                let html = `<div class="success">Found ${rules.length} followup rules</div>`;
+                html += '<table><tr><th>Channel</th><th>Status</th><th>Sequence</th><th>Days</th><th>Next Action</th><th>Description</th></tr>';
+                
+                rules.forEach(rule => {
+                    html += `<tr>
+                        <td>${rule.channel}</td>
+                        <td>${rule.outreach_status}</td>
+                        <td>${rule.channel_sequence}</td>
+                        <td>${rule.default_days}</td>
+                        <td>${rule.next_action || 'NULL'}</td>
+                        <td>${rule.description}</td>
+                    </tr>`;
+                });
+                html += '</table>';
+                
+                document.getElementById('rules-result').innerHTML = html;
+                
+            } catch (err) {
+                document.getElementById('rules-result').innerHTML = `<span class="error">Error: ${err.message}</span>`;
+            }
+        }
+        
+        async function testStatusChannelLookup() {
+            const status = document.getElementById('test-status').value;
+            const channel = document.getElementById('test-channel').value;
+            
+            try {
+                const { data: rules, error } = await supabase
+                    .from('followup_rules')
+                    .select('*')
+                    .eq('outreach_status', status)
+                    .eq('channel', channel)
+                    .order('channel_sequence')
+                    .limit(1);
+                
+                if (error) throw error;
+                
+                if (rules && rules.length > 0) {
+                    const rule = rules[0];
+                    document.getElementById('lookup-result').innerHTML = `
+                        <div class="success">✅ Found rule for ${status} + ${channel}</div>
+                        <pre>Channel: ${rule.channel}
+Status: ${rule.outreach_status}
+Sequence: ${rule.channel_sequence}
+Default Days: ${rule.default_days}
+Next Action: ${rule.next_action || 'NULL'}
+Description: ${rule.description}</pre>
+                    `;
+                } else {
+                    document.getElementById('lookup-result').innerHTML = `
+                        <div class="error">❌ No rule found for ${status} + ${channel}</div>
+                    `;
+                }
+                
+            } catch (err) {
+                document.getElementById('lookup-result').innerHTML = `<span class="error">Error: ${err.message}</span>`;
+            }
+        }
+        
+        async function testFunctionDirectly() {
+            const contactId = document.getElementById('direct-contact-id').value;
+            const channel = document.getElementById('direct-channel').value;
+            
+            if (!contactId) {
+                document.getElementById('direct-result').innerHTML = '<span class="error">Please enter a contact ID</span>';
+                return;
+            }
+            
+            try {
+                console.log('Testing function directly with:', { contactId, channel });
+                
+                // First, manually drop conflicting functions via SQL
+                const { error: dropError } = await supabase.rpc('exec_sql', {
+                    sql: `
+                        DROP FUNCTION IF EXISTS calculate_next_action(uuid, integer, text);
+                        DROP FUNCTION IF EXISTS calculate_next_action(uuid, integer, channel_enum);
+                        DROP FUNCTION IF EXISTS calculate_next_action(p_contact_id uuid, p_custom_days integer, p_channel text);
+                        DROP FUNCTION IF EXISTS calculate_next_action(p_contact_id uuid, p_custom_days integer, p_channel channel_enum);
+                    `
+                });
+                
+                if (dropError) {
+                    console.log('Drop functions result:', dropError);
+                }
+                
+                // Now create the single function
+                const { error: createError } = await supabase.rpc('exec_sql', {
+                    sql: `
+                        CREATE OR REPLACE FUNCTION calculate_next_action(
+                          p_contact_id UUID,
+                          p_custom_days INTEGER DEFAULT NULL,
+                          p_channel TEXT DEFAULT 'linkedin'
+                        ) RETURNS TABLE(next_action_date TIMESTAMP WITH TIME ZONE, next_action_status TEXT) AS $$
+                        DECLARE
+                          contact_record RECORD;
+                          rule_record RECORD;
+                          calculated_date TIMESTAMP WITH TIME ZONE;
+                          action_status TEXT;
+                        BEGIN
+                          SELECT * INTO contact_record FROM master WHERE id = p_contact_id;
+                          IF NOT FOUND THEN
+                            RAISE EXCEPTION 'Contact with ID % not found', p_contact_id;
+                          END IF;
+                          
+                          SELECT * INTO rule_record
+                          FROM followup_rules 
+                          WHERE outreach_status = contact_record.outreach_status::outreach_status_enum
+                            AND channel = p_channel::channel_enum
+                          ORDER BY channel_sequence ASC LIMIT 1;
+                          
+                          IF NOT FOUND AND p_channel != 'linkedin' THEN
+                            SELECT * INTO rule_record
+                            FROM followup_rules 
+                            WHERE outreach_status = contact_record.outreach_status::outreach_status_enum
+                              AND channel = 'linkedin'::channel_enum
+                            ORDER BY channel_sequence ASC LIMIT 1;
+                          END IF;
+                          
+                          IF FOUND THEN
+                            IF p_custom_days IS NOT NULL THEN
+                              calculated_date := CURRENT_DATE + INTERVAL '1 day' * p_custom_days;
+                            ELSE
+                              calculated_date := CURRENT_DATE + INTERVAL '1 day' * rule_record.default_days;
+                            END IF;
+                            action_status := rule_record.next_action;
+                          ELSE
+                            calculated_date := CURRENT_DATE + INTERVAL '7 days';
+                            action_status := 'follow up';
+                          END IF;
+                          
+                          UPDATE master 
+                          SET next_action_date = calculated_date, next_action_status = action_status, updated_at = CURRENT_TIMESTAMP
+                          WHERE id = p_contact_id;
+                          
+                          RETURN QUERY SELECT calculated_date, action_status;
+                        END;
+                        $$ LANGUAGE plpgsql SECURITY DEFINER;
+                    `
+                });
+                
+                if (createError) {
+                    console.error('Create function error:', createError);
+                    throw createError;
+                }
+                
+                console.log('Function recreated successfully');
+                
+                // Now call the function
+                const { data: result, error: funcError } = await supabase.rpc('calculate_next_action', {
+                    p_contact_id: contactId,
+                    p_custom_days: null,
+                    p_channel: channel
+                });
+                
+                if (funcError) {
+                    console.error('Function error:', funcError);
+                    throw funcError;
+                }
+                
+                console.log('Function result:', result);
+                
+                // Check if master table was actually updated
+                const { data: updated, error: fetchError } = await supabase
+                    .from('master')
+                    .select('name, outreach_status, channel_from, next_action_date, next_action_status')
+                    .eq('id', contactId)
+                    .single();
+                
+                if (fetchError) throw fetchError;
+                
+                document.getElementById('direct-result').innerHTML = `
+                    <div class="success">✅ Function executed</div>
+                    <h3>Function Result:</h3>
+                    <pre>${JSON.stringify(result, null, 2)}</pre>
+                    
+                    <h3>Master Table After Function:</h3>
+                    <pre>Name: ${updated.name}
+Channel From: ${updated.channel_from || 'NULL'}
+Status: ${updated.outreach_status}
+Next Action Date: ${updated.next_action_date || 'NULL'}
+Next Action Status: ${updated.next_action_status || 'NULL'}</pre>
+                `;
+                
+            } catch (err) {
+                document.getElementById('direct-result').innerHTML = `<span class="error">Error: ${err.message}</span>`;
+                console.error('Direct test error:', err);
+            }
+        }
+        
+        async function checkMasterValues() {
+            const contactId = document.getElementById('check-contact-id').value;
+            
+            if (!contactId) {
+                document.getElementById('check-result').innerHTML = '<span class="error">Please enter a contact ID</span>';
+                return;
+            }
+            
+            try {
+                const { data: record, error } = await supabase
+                    .from('master')
+                    .select('*')
+                    .eq('id', contactId)
+                    .single();
+                
+                if (error) throw error;
+                
+                document.getElementById('check-result').innerHTML = `
+                    <div class="success">✅ Current master table values</div>
+                    <pre>ID: ${record.id}
+Name: ${record.name}
+Email: ${record.email}
+Channel: ${record.channel || 'NULL'}
+Channel From: ${record.channel_from || 'NULL'}
+Outreach Status: ${record.outreach_status}
+Next Action Date: ${record.next_action_date || 'NULL'}
+Next Action Status: ${record.next_action_status || 'NULL'}
+Last Action Date: ${record.last_action_date || 'NULL'}
+Created At: ${record.created_at}
+Updated At: ${record.updated_at}</pre>
+                `;
+                
+            } catch (err) {
+                document.getElementById('check-result').innerHTML = `<span class="error">Error: ${err.message}</span>`;
+            }
+        }
+        
+        async function testCompleteWorkflow() {
+            const contactId = document.getElementById('contact-id').value;
+            const newChannel = document.getElementById('new-channel').value;
+            const newStatus = document.getElementById('new-status').value;
+            
+            if (!contactId) {
+                document.getElementById('workflow-result').innerHTML = '<span class="error">Please enter a contact ID</span>';
+                return;
+            }
+            
+            try {
+                // Step 1: Update channel_from and status
+                const { error: updateError } = await supabase
+                    .from('master')
+                    .update({ 
+                        channel_from: newChannel,
+                        outreach_status: newStatus,
+                        last_action_date: new Date().toISOString()
+                    })
+                    .eq('id', contactId);
+                
+                if (updateError) throw updateError;
+                
+                // Step 2: Calculate next action
+                const { data: result, error: calcError } = await supabase.rpc('calculate_next_action', {
+                    p_contact_id: contactId,
+                    p_custom_days: null,
+                    p_channel: newChannel
+                });
+                
+                if (calcError) throw calcError;
+                
+                // Step 3: Get updated record
+                const { data: updated, error: fetchError } = await supabase
+                    .from('master')
+                    .select('name, outreach_status, channel_from, next_action_date, next_action_status')
+                    .eq('id', contactId)
+                    .single();
+                
+                if (fetchError) throw fetchError;
+                
+                // Step 4: Get the followup rule that was used
+                const { data: rule, error: ruleError } = await supabase
+                    .from('followup_rules')
+                    .select('*')
+                    .eq('outreach_status', newStatus)
+                    .eq('channel', newChannel)
+                    .order('channel_sequence')
+                    .limit(1);
+                
+                if (ruleError) throw ruleError;
+                
+                document.getElementById('workflow-result').innerHTML = `
+                    <div class="success">✅ Complete workflow executed successfully</div>
+                    <h3>Updated Contact:</h3>
+                    <pre>Name: ${updated.name}
+Channel From: ${updated.channel_from}
+Status: ${updated.outreach_status}
+Next Action Date: ${updated.next_action_date}
+Next Action Status: ${updated.next_action_status}</pre>
+                    
+                    <h3>Followup Rule Used:</h3>
+                    <pre>Channel: ${rule[0]?.channel || 'Not found'}
+Status: ${rule[0]?.outreach_status || 'Not found'}
+Default Days: ${rule[0]?.default_days || 'Not found'}
+Next Action: ${rule[0]?.next_action || 'NULL'}
+Description: ${rule[0]?.description || 'Not found'}</pre>
+                    
+                    <h3>Function Result:</h3>
+                    <pre>${JSON.stringify(result, null, 2)}</pre>
+                `;
+                
+            } catch (err) {
+                document.getElementById('workflow-result').innerHTML = `<span class="error">Error: ${err.message}</span>`;
+                console.error('Workflow error:', err);
+            }
+        }
+    </script>
+</body>
+</html>

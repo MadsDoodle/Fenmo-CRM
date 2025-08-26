@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug Data Flow</title>
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; }
+        .error { color: red; }
+        .success { color: green; }
+        table { border-collapse: collapse; width: 100%; margin: 10px 0; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        button { padding: 10px 15px; margin: 5px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h1>Debug Data Flow - CSV to Master Table</h1>
+    
+    <div class="section">
+        <h2>1. Database Connection Test</h2>
+        <div id="connection-status">Testing...</div>
+    </div>
+
+    <div class="section">
+        <h2>2. Raw Upload Table Check</h2>
+        <button onclick="checkRawUpload()">Check Raw Upload Data</button>
+        <div id="raw-upload-data"></div>
+    </div>
+
+    <div class="section">
+        <h2>3. Master Table Check</h2>
+        <button onclick="checkMasterTable()">Check Master Table Data</button>
+        <div id="master-table-data"></div>
+    </div>
+
+    <div class="section">
+        <h2>4. Process Raw to Master</h2>
+        <button onclick="processRawToMaster()">Run process_raw_upload_to_master</button>
+        <div id="process-result"></div>
+    </div>
+
+    <div class="section">
+        <h2>5. Frontend Data Loading Test</h2>
+        <button onclick="testFrontendQuery()">Test Frontend Query</button>
+        <div id="frontend-query-result"></div>
+    </div>
+
+    <script>
+        const SUPABASE_URL = "https://igenkbdgctezmzicxhgy.supabase.co";
+        const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlnZW5rYmRnY3Rlem16aWN4aGd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUyMTk3ODUsImV4cCI6MjA3MDc5NTc4NX0._p5ZRHOOaNLsdOB65Ixr7uanRXY8QGS1wTlLhiGSVvA";
+        
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        
+        // Test connection
+        async function testConnection() {
+            try {
+                const { data, error } = await supabase.from('master').select('count').limit(1);
+                if (error) throw error;
+                document.getElementById('connection-status').innerHTML = '<span class="success">✅ Connected to Supabase</span>';
+            } catch (err) {
+                document.getElementById('connection-status').innerHTML = `<span class="error">❌ Connection failed: ${err.message}</span>`;
+            }
+        }
+
+        async function checkRawUpload() {
+            try {
+                const { data, error } = await supabase
+                    .from('raw_upload')
+                    .select('*')
+                    .order('created_at', { ascending: false })
+                    .limit(10);
+                
+                if (error) throw error;
+                
+                let html = `<p class="success">Found ${data.length} records in raw_upload table</p>`;
+                if (data.length > 0) {
+                    html += '<table><tr><th>Name</th><th>Email</th><th>Channel</th><th>Company</th><th>Created</th></tr>';
+                    data.forEach(record => {
+                        html += `<tr>
+                            <td>${record.name || '-'}</td>
+                            <td>${record.email || '-'}</td>
+                            <td>${record.channel || '-'}</td>
+                            <td>${record.company || '-'}</td>
+                            <td>${new Date(record.created_at).toLocaleString()}</td>
+                        </tr>`;
+                    });
+                    html += '</table>';
+                }
+                document.getElementById('raw-upload-data').innerHTML = html;
+            } catch (err) {
+                document.getElementById('raw-upload-data').innerHTML = `<span class="error">Error: ${err.message}</span>`;
+            }
+        }
+
+        async function checkMasterTable() {
+            try {
+                const { data, error } = await supabase
+                    .from('master')
+                    .select('*')
+                    .order('created_at', { ascending: false })
+                    .limit(10);
+                
+                if (error) throw error;
+                
+                let html = `<p class="success">Found ${data.length} records in master table</p>`;
+                if (data.length > 0) {
+                    html += '<table><tr><th>Name</th><th>Email</th><th>Channel</th><th>Company</th><th>Status</th><th>Created</th></tr>';
+                    data.forEach(record => {
+                        html += `<tr>
+                            <td>${record.name || '-'}</td>
+                            <td>${record.email || '-'}</td>
+                            <td>${record.channel || '-'}</td>
+                            <td>${record.company || '-'}</td>
+                            <td>${record.outreach_status || '-'}</td>
+                            <td>${new Date(record.created_at).toLocaleString()}</td>
+                        </tr>`;
+                    });
+                    html += '</table>';
+                } else {
+                    html += '<p class="error">No records found in master table. This might be why the frontend is empty.</p>';
+                }
+                document.getElementById('master-table-data').innerHTML = html;
+            } catch (err) {
+                document.getElementById('master-table-data').innerHTML = `<span class="error">Error: ${err.message}</span>`;
+            }
+        }
+
+        async function processRawToMaster() {
+            try {
+                const { data, error } = await supabase.rpc('process_raw_upload_to_master');
+                if (error) throw error;
+                
+                document.getElementById('process-result').innerHTML = '<span class="success">✅ Successfully processed raw data to master table</span>';
+                
+                // Refresh master table check
+                setTimeout(checkMasterTable, 1000);
+            } catch (err) {
+                document.getElementById('process-result').innerHTML = `<span class="error">Error: ${err.message}</span>`;
+            }
+        }
+
+        async function testFrontendQuery() {
+            try {
+                // This is the exact query used by the frontend
+                const { data, error } = await supabase
+                    .from('master')
+                    .select(`
+                        id,
+                        dedupe_key,
+                        linkedin_url,
+                        email,
+                        channel,
+                        company,
+                        name,
+                        phone,
+                        website,
+                        industry,
+                        emp_count,
+                        title,
+                        location,
+                        msg,
+                        last_action_date,
+                        next_action_date,
+                        outreach_status,
+                        lead_stage,
+                        created_at,
+                        updated_at
+                    `)
+                    .order('created_at', { ascending: false });
+
+                if (error) throw error;
+                
+                let html = `<p class="success">Frontend query returned ${data.length} records</p>`;
+                if (data.length > 0) {
+                    html += '<table><tr><th>ID</th><th>Name</th><th>Email</th><th>Channel</th><th>Status</th><th>Last Action</th><th>Next Action</th></tr>';
+                    data.slice(0, 5).forEach(record => {
+                        html += `<tr>
+                            <td>${record.id}</td>
+                            <td>${record.name || '-'}</td>
+                            <td>${record.email || '-'}</td>
+                            <td>${record.channel || '-'}</td>
+                            <td>${record.outreach_status || '-'}</td>
+                            <td>${record.last_action_date ? new Date(record.last_action_date).toLocaleDateString() : '-'}</td>
+                            <td>${record.next_action_date ? new Date(record.next_action_date).toLocaleDateString() : '-'}</td>
+                        </tr>`;
+                    });
+                    html += '</table>';
+                    
+                    // Show the mapped data structure
+                    const mappedRecord = {
+                        ...data[0],
+                        last_action: data[0].last_action_date,
+                        next_action: data[0].next_action_date,
+                        priority: 'medium',
+                        custom_followup_days: null,
+                        channel_from: null,
+                        outreach_status: (data[0].outreach_status === 'closed' ? 'closed_won' : data[0].outreach_status)
+                    };
+                    
+                    html += '<h4>Sample Mapped Record (as frontend would process):</h4>';
+                    html += `<pre>${JSON.stringify(mappedRecord, null, 2)}</pre>`;
+                } else {
+                    html += '<p class="error">No records returned by frontend query. This explains why Master Table is empty.</p>';
+                }
+                document.getElementById('frontend-query-result').innerHTML = html;
+            } catch (err) {
+                document.getElementById('frontend-query-result').innerHTML = `<span class="error">Error: ${err.message}</span>`;
+            }
+        }
+
+        // Auto-run connection test
+        testConnection();
+    </script>
+</body>
+</html>

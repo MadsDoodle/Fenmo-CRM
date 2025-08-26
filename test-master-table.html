@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Master Table Test</title>
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+</head>
+<body>
+    <h1>Master Table Connection Test</h1>
+    <div id="status">Testing connection...</div>
+    <div id="data"></div>
+
+    <script>
+        const SUPABASE_URL = "https://igenkbdgctezmzicxhgy.supabase.co";
+        const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlnZW5rYmRnY3Rlem16aWN4aGd5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUyMTk3ODUsImV4cCI6MjA3MDc5NTc4NX0._p5ZRHOOaNLsdOB65Ixr7uanRXY8QGS1wTlLhiGSVvA";
+        
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        
+        async function testMasterTable() {
+            try {
+                const { data, error } = await supabase
+                    .from('master')
+                    .select(`
+                        id,
+                        name,
+                        email,
+                        company,
+                        channel,
+                        outreach_status,
+                        created_at
+                    `)
+                    .limit(5);
+                
+                if (error) {
+                    document.getElementById('status').innerHTML = `<span style="color: red;">Error: ${error.message}</span>`;
+                    console.error('Supabase error:', error);
+                    return;
+                }
+                
+                document.getElementById('status').innerHTML = `<span style="color: green;">✅ Connection successful! Found ${data.length} records</span>`;
+                
+                if (data.length > 0) {
+                    const tableHtml = `
+                        <table border="1" style="margin-top: 20px; border-collapse: collapse;">
+                            <tr>
+                                <th>Name</th>
+                                <th>Email</th>
+                                <th>Company</th>
+                                <th>Channel</th>
+                                <th>Status</th>
+                            </tr>
+                            ${data.map(record => `
+                                <tr>
+                                    <td>${record.name || '-'}</td>
+                                    <td>${record.email || '-'}</td>
+                                    <td>${record.company || '-'}</td>
+                                    <td>${record.channel || '-'}</td>
+                                    <td>${record.outreach_status || '-'}</td>
+                                </tr>
+                            `).join('')}
+                        </table>
+                    `;
+                    document.getElementById('data').innerHTML = tableHtml;
+                } else {
+                    document.getElementById('data').innerHTML = '<p>No records found in master table. Try uploading some CSV data first.</p>';
+                }
+                
+            } catch (err) {
+                document.getElementById('status').innerHTML = `<span style="color: red;">Connection failed: ${err.message}</span>`;
+                console.error('Connection error:', err);
+            }
+        }
+        
+        testMasterTable();
+    </script>
+</body>
+</html>

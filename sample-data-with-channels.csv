@@ -1,0 +1,6 @@
+Name,Email,LinkedIn,Company,Title,Phone,Channel,Industry,Location
+John Smith,john@example.com,https://linkedin.com/in/johnsmith,Tech Corp,Software Engineer,+1234567890,LinkedIn,Technology,San Francisco
+Jane Doe,jane@company.com,,Marketing Inc,Marketing Manager,+0987654321,Email,Marketing,New York
+Mike Johnson,mike@startup.io,https://linkedin.com/in/mikej,StartupXYZ,CTO,,LinkedIn,Technology,Austin
+Sarah Wilson,sarah@enterprise.com,,Enterprise Ltd,Sales Director,+1122334455,Phone,Finance,Chicago
+David Brown,david@consulting.com,https://linkedin.com/in/davidb,Consulting Pro,Senior Consultant,,Email,Consulting,Boston
