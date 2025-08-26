@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { Upload, X, FileText, CheckCircle, AlertCircle } from "lucide-react";
+import { Upload, X, FileText, CheckCircle, AlertCircle, Download } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -22,6 +22,7 @@ export function CSVDropZone({ onCSVParsed, className }: CSVDropZoneProps) {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadStatus, setUploadStatus] = useState<"idle" | "success" | "error">("idle");
   const [fileName, setFileName] = useState<string>("");
+  const [validationWarning, setValidationWarning] = useState<string | null>(null);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -41,10 +42,33 @@ export function CSVDropZone({ onCSVParsed, className }: CSVDropZoneProps) {
     return isValidType && file.size <= 10 * 1024 * 1024; // 10MB limit
   };
 
+  const downloadTemplate = () => {
+    const headers = [
+      'name','email','linkedin_url','channel','company','phone','website','industry','emp_count','title','location'
+    ];
+    const sample = [
+      ['Jane Doe','jane@example.com','', 'email','Acme Inc','+1-555-0100','https://acme.com','technology','11-50','CTO','San Francisco, CA'],
+      ['John Smith','', 'https://www.linkedin.com/in/johnsmith','linkedin','Globex','','http://globex.com','finance','1000+','Head of Sales','New York, NY']
+    ];
+    const content = [headers.join(','), ...sample.map(r => r.map(v => typeof v === 'string' && v.includes(',') ? `"${v}"` : v).join(','))].join('\n');
+    const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'contacts_template.csv';
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const detectColumn = (headers: string[], patterns: string[]) => {
+    return headers.findIndex(h => patterns.some(p => h.toLowerCase().includes(p.toLowerCase())));
+  };
+
   const parseCSV = (file: File) => {
     setIsUploading(true);
     setUploadProgress(0);
     setFileName(file.name);
+    setValidationWarning(null);
     
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -61,6 +85,23 @@ export function CSVDropZone({ onCSVParsed, className }: CSVDropZoneProps) {
         const rows = lines.slice(1).map(line => 
           line.split(',').map(cell => cell.trim().replace(/"/g, ''))
         );
+
+        // Pre-upload validation: warn for rows missing name and missing both email/linkedin_url
+        const nameIdx = detectColumn(headers, ['name', 'full_name']);
+        const emailIdx = detectColumn(headers, ['email', 'e-mail', 'mail']);
+        const liIdx = detectColumn(headers, ['linkedin', 'linkedin_url']);
+        if (nameIdx === -1) {
+          setValidationWarning('Missing required column: name. Please use the provided template.');
+        }
+        const invalidCount = rows.filter(r => {
+          const name = nameIdx >= 0 ? (r[nameIdx] || '').trim() : '';
+          const email = emailIdx >= 0 ? (r[emailIdx] || '').trim() : '';
+          const li = liIdx >= 0 ? (r[liIdx] || '').trim() : '';
+          return !name || (!email && !li);
+        }).length;
+        if (invalidCount > 0) {
+          setValidationWarning(`${invalidCount} row(s) are missing name and/or both email and linkedin_url. Those rows will be skipped.`);
+        }
 
         // Simulate progress
         const interval = setInterval(() => {
@@ -182,6 +223,11 @@ export function CSVDropZone({ onCSVParsed, className }: CSVDropZoneProps) {
             <p className="text-sm text-muted-foreground max-w-md">
               {getStatusMessage()}
             </p>
+            {validationWarning && (
+              <p className="text-xs text-amber-600 dark:text-amber-400 max-w-md">
+                ⚠️ {validationWarning}
+              </p>
+            )}
           </div>
 
           {/* Progress Bar */}
@@ -206,6 +252,16 @@ export function CSVDropZone({ onCSVParsed, className }: CSVDropZoneProps) {
                 <FileText className="w-4 h-4 mr-2" />
                 Browse Files
               </Button>
+              <div>
+                <Button
+                  variant="ghost"
+                  onClick={downloadTemplate}
+                  className="text-primary hover:bg-primary/10"
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Download CSV Template
+                </Button>
+              </div>
               <input
                 id="csv-upload"
                 type="file"
