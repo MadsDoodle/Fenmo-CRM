@@ -32,11 +32,7 @@ import { cn } from "@/lib/utils";
 
 const navigationItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
-  { title: "Contacts", url: "/contacts", icon: Users },
-  { title: "Messaging", url: "/messaging", icon: MessageSquare },
-  { title: "Tasks", url: "/tasks", icon: CheckSquare },
-  { title: "Scheduling", url: "/scheduling", icon: Calendar },
-  { title: "Analytics", url: "/analytics", icon: BarChart3 },
+  { title: "Configurations", url: "/messaging", icon: MessageSquare },
   { title: "Master Table", url: "/master-table", icon: Database, special: true },
 ];
 

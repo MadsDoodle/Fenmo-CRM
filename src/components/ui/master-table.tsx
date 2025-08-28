@@ -7,11 +7,11 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ChevronUp, ChevronDown, Search, Filter, Download, Upload, Plus, Pencil, Check, X, Eye, Database, RefreshCw, ArrowUpDown, Merge, Split } from "lucide-react";
+import { ChevronUp, ChevronDown, Search, Filter, Download, Upload, Plus, Pencil, Check, X, Eye, Database, RefreshCw, ArrowUpDown, Merge, Split, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { OUTREACH_STATUS_OPTIONS, LEAD_STAGE_OPTIONS, CHANNEL_OPTIONS, PRIORITY_OPTIONS, CHANNEL_FROM_OPTIONS, updateContactStatus, type OutreachStatus, type ChannelType, type LeadStage, getStatusColor, getLeadStageColor, getLeadStageLabel, getStatusOptionsForChannel } from "@/lib/status-config";
+import { OUTREACH_STATUS_OPTIONS, LEAD_STAGE_OPTIONS, CHANNEL_FROM_OPTIONS, updateContactStatus, type OutreachStatus, type ChannelType, type LeadStage, getStatusColor, getLeadStageColor, getLeadStageLabel, getStatusOptionsForChannel } from "@/lib/status-config";
 
 interface MasterRecord {
   id: string;
@@ -154,6 +154,13 @@ export function MasterTable() {
         .eq('id', editingCell.id);
 
       if (error) throw error;
+
+      // Update the frontend state immediately
+      setRecords(current => current.map(record => 
+        record.id === editingCell.id 
+          ? { ...record, [editingCell.field]: editValue }
+          : record
+      ));
 
       toast({
         title: "Updated Successfully",
@@ -579,6 +586,92 @@ export function MasterTable() {
     }
   };
 
+  const handleDeleteRows = async () => {
+    if (selectedRows.size === 0) {
+      toast({
+        title: "No Rows Selected",
+        description: "Please select rows to delete.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      const rowsToDelete = Array.from(selectedRows);
+      
+      const { error } = await supabase
+        .from('master')
+        .delete()
+        .in('id', rowsToDelete);
+
+      if (error) throw error;
+
+      // Update frontend state
+      setRecords(current => current.filter(record => !selectedRows.has(record.id)));
+      setSelectedRows(new Set());
+
+      toast({
+        title: "Rows Deleted",
+        description: `Successfully deleted ${rowsToDelete.length} row(s).`,
+      });
+
+    } catch (error) {
+      console.error('Error deleting rows:', error);
+      toast({
+        title: "Delete Failed",
+        description: "Failed to delete selected rows.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleAddNewRow = async () => {
+    try {
+      // Generate a unique dedupe_key
+      const dedupeKey = `new_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      // Direct insert with only required fields to avoid type issues
+      const { data, error } = await supabase
+        .from('master')
+        .insert({
+          dedupe_key: dedupeKey,
+          name: 'New Contact'
+        })
+        .select('*')
+        .single();
+
+      if (error) {
+        console.error('Insert error:', error);
+        throw error;
+      }
+        
+      // Reload the entire table to get the new record with proper mapping
+      await loadMasterData();
+      
+      toast({
+        title: "New Row Added",
+        description: "A new contact record has been created. Click on any cell to edit.",
+      });
+      
+      // Find and start editing the new record
+      setTimeout(() => {
+        const newRecord = records.find(r => r.dedupe_key === dedupeKey);
+        if (newRecord) {
+          handleCellEdit(newRecord.id, 'name', 'New Contact');
+        }
+      }, 500);
+
+    } catch (error) {
+      console.error('Error adding new row:', error);
+      const errorMsg = error?.message || error?.details || 'Unknown error';
+      toast({
+        title: "Failed to Add Row",
+        description: `Could not create a new contact record: ${errorMsg}`,
+        variant: "destructive"
+      });
+    }
+  };
+
 
 
   const renderEditableCell = (record: MasterRecord, field: string, value: any) => {
@@ -593,7 +686,8 @@ export function MasterTable() {
             <Textarea
               value={editValue}
               onChange={(e) => setEditValue(e.target.value)}
-              className="h-20 text-xs border-2 border-blue-400 focus:border-blue-600"
+              className="h-20 text-xs border-2 border-blue-400 focus:border-blue-600 bg-white text-gray-900 placeholder-gray-500"
+              style={{ backgroundColor: 'white', color: '#111827' }}
               onKeyDown={(e) => {
                 if (e.key === 'Escape') handleCancelEdit();
               }}
@@ -602,7 +696,8 @@ export function MasterTable() {
             <Input
               value={editValue}
               onChange={(e) => setEditValue(e.target.value)}
-              className="text-xs border-2 border-blue-400 focus:border-blue-600"
+              className="text-xs border-2 border-blue-400 focus:border-blue-600 bg-white text-gray-900 placeholder-gray-500"
+              style={{ backgroundColor: 'white', color: '#111827' }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') handleSaveEdit();
                 if (e.key === 'Escape') handleCancelEdit();
@@ -660,12 +755,9 @@ export function MasterTable() {
 
   return (
     <Card className="sheets-table">
-      <CardHeader className="bg-gray-50 border-b border-gray-200">
+      {/* Compact toolbar with search, filters, and add button */}
+      <div className="bg-white border-b border-gray-200 px-4 py-3">
         <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2 text-gray-800">
-            <Database className="w-5 h-5 text-blue-600" />
-            Master Table
-          </CardTitle>
           <div className="flex items-center gap-2">
             <div className="relative">
               <Search className="absolute left-2 top-2.5 h-4 w-4 text-gray-400" />
@@ -689,22 +781,43 @@ export function MasterTable() {
               <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
             </Button>
           </div>
+          <div className="flex items-center gap-2">
+            <Button 
+              variant="default" 
+              size="sm" 
+              onClick={handleAddNewRow}
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Add New Row
+            </Button>
+            {selectedRows.size > 0 && (
+              <Button 
+                variant="destructive" 
+                size="sm" 
+                onClick={handleDeleteRows}
+                className="bg-red-600 hover:bg-red-700 text-white"
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Delete ({selectedRows.size})
+              </Button>
+            )}
+            <div className="flex items-center gap-2 text-sm text-gray-600">
+              <Badge variant="secondary" className="bg-blue-100 text-blue-800">{filteredRecords.length} records</Badge>
+              {filters.length > 0 && (
+                <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
+                  {filters.length} filters
+                </Badge>
+              )}
+              {selectedRows.size > 0 && (
+                <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                  {selectedRows.size} selected
+                </Badge>
+              )}
+            </div>
+          </div>
         </div>
-        <div className="flex items-center gap-4 text-sm text-gray-600">
-          <Badge variant="secondary" className="bg-blue-100 text-blue-800">{filteredRecords.length} records</Badge>
-          <span>Real-time updates enabled</span>
-          {filters.length > 0 && (
-            <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
-              {filters.length} active filters
-            </Badge>
-          )}
-          {selectedRows.size > 0 && (
-            <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
-              {selectedRows.size} selected
-            </Badge>
-          )}
-        </div>
-      </CardHeader>
+      </div>
 
       {/* Filters Panel */}
       {showFilters && (
