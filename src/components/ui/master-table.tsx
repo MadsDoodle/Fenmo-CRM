@@ -19,6 +19,7 @@ interface MasterRecord {
   linkedin_url: string | null;
   email: string | null;
   channel: string | null;
+  channels: string | null;
   channel_from: ChannelType | null;
   company: string | null;
   name: string;
@@ -26,6 +27,7 @@ interface MasterRecord {
   website: string | null;
   industry: string | null;
   emp_count: string | null;
+  emp_count_raw: string | null;
   title: string | null;
   location: string | null;
   msg: string | null;
@@ -74,6 +76,13 @@ export function MasterTable() {
   const [mergedCells, setMergedCells] = useState<Set<string>>(new Set());
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>('large');
+  const [bulkStatusValue, setBulkStatusValue] = useState<OutreachStatus | ''>('');
+  const [bulkChannelValue, setBulkChannelValue] = useState<ChannelType | ''>('');
+  const [bulkLeadStageValue, setBulkLeadStageValue] = useState<LeadStage | ''>('');
+  const [copiedValue, setCopiedValue] = useState<string>('');
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStartIndex, setDragStartIndex] = useState<number | null>(null);
+  const [lastClickedIndex, setLastClickedIndex] = useState<number | null>(null);
   const { toast } = useToast();
 
   const loadMessageTemplates = useCallback(async () => {
@@ -165,6 +174,7 @@ export function MasterTable() {
           linkedin_url,
           email,
           channel,
+          channels,
           channel_from,
           company,
           name,
@@ -172,6 +182,7 @@ export function MasterTable() {
           website,
           industry,
           emp_count,
+          emp_count_raw,
           title,
           location,
           msg,
@@ -184,7 +195,7 @@ export function MasterTable() {
           created_at,
           updated_at
         `)
-        .order('created_at', { ascending: false });
+        .order('id', { ascending: true });
 
       if (error) throw error;
       
@@ -307,6 +318,8 @@ export function MasterTable() {
     setRecords(current => current.map(r => r.id === recordId ? { 
       ...r, 
       outreach_status: newStatus,
+      // Reset lead_stage when status changes
+      lead_stage: null as any,
       last_action: currentDate
     } : r));
 
@@ -315,6 +328,7 @@ export function MasterTable() {
         .from('master')
         .update({ 
           outreach_status: mapStatusForDb(newStatus),
+          lead_stage: null, // Reset lead_stage when status changes
           last_action_date: new Date(new Date().getTime() + (5.5 * 60 * 60 * 1000)).toISOString().split('T')[0] // Store as YYYY-MM-DD in IST
         })
         .eq('id', recordId);
@@ -362,7 +376,7 @@ export function MasterTable() {
         console.warn('Activity log insert failed (non-blocking):', e);
       }
 
-      // Don't reload - optimistic updates already applied
+      // Don't reload - optimistic updates already applied to maintain position
 
       toast({
         title: "Status Updated",
@@ -398,17 +412,28 @@ export function MasterTable() {
     setRecords(current => current.map(r => r.id === recordId ? { 
       ...r, 
       channel_from: newChannelFrom,
+      // Reset status and lead_stage when channel changes
+      outreach_status: newChannelFrom ? r.outreach_status : null as any,
+      lead_stage: newChannelFrom ? r.lead_stage : null as any,
       last_action: currentDate
     } : r));
 
     try {
       // Check if channel_from column exists by trying to update it
+      const updateData: any = {
+        channel_from: newChannelFrom,
+        last_action_date: new Date(new Date().getTime() + (5.5 * 60 * 60 * 1000)).toISOString().split('T')[0] // Store as YYYY-MM-DD in IST
+      };
+      
+      // Reset status and lead_stage when channel is cleared
+      if (!newChannelFrom) {
+        updateData.outreach_status = null;
+        updateData.lead_stage = null;
+      }
+      
       const { error } = await supabase
         .from('master')
-        .update({ 
-          channel_from: newChannelFrom,
-          last_action_date: new Date(new Date().getTime() + (5.5 * 60 * 60 * 1000)).toISOString().split('T')[0] // Store as YYYY-MM-DD in IST
-        } as any)
+        .update(updateData)
         .eq('id', recordId);
 
       if (error) {
@@ -460,7 +485,7 @@ export function MasterTable() {
         console.error('next_action recompute error after channel change:', calcErr);
       }
 
-      // Don't reload - optimistic update already applied
+      // Don't reload - optimistic update already applied to maintain position
 
       toast({
         title: "Channel Updated",
@@ -610,17 +635,78 @@ export function MasterTable() {
     });
   };
 
-  const toggleRowSelection = (recordId: string) => {
-    setSelectedRows(current => {
-      const newSet = new Set(current);
-      if (newSet.has(recordId)) {
-        newSet.delete(recordId);
-      } else {
-        newSet.add(recordId);
-      }
-      return newSet;
-    });
+  const toggleRowSelection = (recordId: string, index: number, event?: React.MouseEvent) => {
+    if (event?.shiftKey && lastClickedIndex !== null) {
+      // Shift + Click: Select range
+      const startIndex = Math.min(lastClickedIndex, index);
+      const endIndex = Math.max(lastClickedIndex, index);
+      const rangeIds = filteredRecords.slice(startIndex, endIndex + 1).map(r => r.id);
+      
+      setSelectedRows(current => {
+        const newSet = new Set(current);
+        rangeIds.forEach(id => newSet.add(id));
+        return newSet;
+      });
+    } else {
+      // Normal click: Toggle single row
+      setSelectedRows(current => {
+        const newSet = new Set(current);
+        if (newSet.has(recordId)) {
+          newSet.delete(recordId);
+        } else {
+          newSet.add(recordId);
+        }
+        return newSet;
+      });
+    }
+    setLastClickedIndex(index);
   };
+
+  const handleMouseDown = (index: number, event: React.MouseEvent) => {
+    if (event.shiftKey) return; // Don't start drag on shift+click
+    setIsDragging(true);
+    setDragStartIndex(index);
+    event.preventDefault();
+  };
+
+  const handleMouseEnter = (index: number) => {
+    if (isDragging && dragStartIndex !== null) {
+      const startIndex = Math.min(dragStartIndex, index);
+      const endIndex = Math.max(dragStartIndex, index);
+      const rangeIds = filteredRecords.slice(startIndex, endIndex + 1).map(r => r.id);
+      
+      setSelectedRows(new Set(rangeIds));
+    }
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+    setDragStartIndex(null);
+  };
+
+  // Add global mouse up and ESC key listeners
+  useEffect(() => {
+    const handleGlobalMouseUp = () => {
+      setIsDragging(false);
+      setDragStartIndex(null);
+    };
+    
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && selectedRows.size > 0) {
+        setSelectedRows(new Set());
+        setBulkStatusValue('');
+        setBulkChannelValue('');
+        setLastClickedIndex(null);
+      }
+    };
+    
+    document.addEventListener('mouseup', handleGlobalMouseUp);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mouseup', handleGlobalMouseUp);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [selectedRows.size]);
 
   const getFilteredAndSortedRecords = () => {
     let filtered = records.filter(record =>
@@ -693,6 +779,161 @@ export function MasterTable() {
     }
   };
 
+  const handleBulkStatusUpdate = async () => {
+    if (selectedRows.size === 0 || !bulkStatusValue) {
+      toast({
+        title: "Invalid Selection",
+        description: "Please select rows and choose a status.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      const rowsToUpdate = Array.from(selectedRows);
+      const mapStatusForDb = (status: OutreachStatus): any => {
+        const extendedClosed: OutreachStatus[] = [
+          'closed_won', 'closed_lost', 'qualified', 'proposal_sent', 'meeting_scheduled', 'demo_completed', 'negotiation'
+        ];
+        return (extendedClosed as string[]).includes(status as string) ? 'closed' : (status as any);
+      };
+
+      const { error } = await supabase
+        .from('master')
+        .update({ 
+          outreach_status: mapStatusForDb(bulkStatusValue),
+          last_action_date: new Date(new Date().getTime() + (5.5 * 60 * 60 * 1000)).toISOString().split('T')[0]
+        })
+        .in('id', rowsToUpdate);
+
+      if (error) throw error;
+
+      // Update frontend state
+      const currentDate = new Date().toISOString();
+      setRecords(current => current.map(record => 
+        selectedRows.has(record.id) 
+          ? { ...record, outreach_status: bulkStatusValue, last_action: currentDate }
+          : record
+      ));
+      
+      setSelectedRows(new Set());
+      setBulkStatusValue('');
+
+      toast({
+        title: "Bulk Update Successful",
+        description: `Updated status for ${rowsToUpdate.length} record(s).`,
+      });
+
+    } catch (error) {
+      console.error('Error updating bulk status:', error);
+      toast({
+        title: "Bulk Update Failed",
+        description: "Failed to update selected rows.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleBulkChannelUpdate = async () => {
+    if (selectedRows.size === 0 || !bulkChannelValue) {
+      toast({
+        title: "Invalid Selection",
+        description: "Please select rows and choose a channel.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      const rowsToUpdate = Array.from(selectedRows);
+      
+      const { error } = await supabase
+        .from('master')
+        .update({ 
+          channel_from: bulkChannelValue,
+          outreach_status: null, // Reset status when channel changes
+          lead_stage: null, // Reset lead stage when channel changes
+          last_action_date: new Date(new Date().getTime() + (5.5 * 60 * 60 * 1000)).toISOString().split('T')[0]
+        })
+        .in('id', rowsToUpdate);
+
+      if (error) throw error;
+
+      // Update frontend state
+      const currentDate = new Date().toISOString();
+      setRecords(current => current.map(record => 
+        selectedRows.has(record.id) 
+          ? { ...record, channel_from: bulkChannelValue, outreach_status: null as any, lead_stage: null as any, last_action: currentDate }
+          : record
+      ));
+      
+      setSelectedRows(new Set());
+      setBulkChannelValue('');
+
+      toast({
+        title: "Bulk Channel Update Successful",
+        description: `Updated channel for ${rowsToUpdate.length} record(s).`,
+      });
+
+    } catch (error) {
+      console.error('Error updating bulk channel:', error);
+      toast({
+        title: "Bulk Update Failed",
+        description: "Failed to update selected rows.",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleCopyValue = (value: string) => {
+    setCopiedValue(value);
+    navigator.clipboard.writeText(value);
+    toast({
+      title: "Value Copied",
+      description: `"${value}" copied to clipboard.`,
+    });
+  };
+
+  const handlePasteValue = async (recordId: string, field: string) => {
+    if (!copiedValue) {
+      toast({
+        title: "Nothing to Paste",
+        description: "No value has been copied yet.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('master')
+        .update({ [field]: copiedValue })
+        .eq('id', recordId);
+
+      if (error) throw error;
+
+      // Update frontend state
+      setRecords(current => current.map(record => 
+        record.id === recordId 
+          ? { ...record, [field]: copiedValue }
+          : record
+      ));
+
+      toast({
+        title: "Value Pasted",
+        description: `Pasted "${copiedValue}" to ${field}.`,
+      });
+
+    } catch (error) {
+      console.error('Error pasting value:', error);
+      toast({
+        title: "Paste Failed",
+        description: "Failed to paste value.",
+        variant: "destructive"
+      });
+    }
+  };
+
   const handleDeleteRows = async () => {
     if (selectedRows.size === 0) {
       toast({
@@ -732,6 +973,65 @@ export function MasterTable() {
     }
   };
 
+  const downloadCSV = () => {
+    try {
+      // Prepare CSV headers
+      const csvHeaders = [
+        'Name', 'Email', 'Company', 'Title', 'Phone', 'Size', 'LinkedIn', 'Sources', 'Channel From', 'Status', 'Priority', 'Lead Stage',
+        'Last Action', 'Next Action Date', 'Next Action Status', 'Industry', 'Location'
+      ];
+      
+      // Prepare CSV data
+      const csvData = filteredRecords.map(record => [
+        record.name || '',
+        record.email || '',
+        record.company || '',
+        record.title || '',
+        record.phone || '',
+        record.emp_count_raw || '',
+        record.linkedin_url || '',
+        record.channels || '',
+        record.channel_from ? CHANNEL_FROM_OPTIONS.find(opt => opt.value === record.channel_from)?.label || record.channel_from : '',
+        record.outreach_status ? (getStatusOptionsForChannel(record.channel_from).find(opt => opt.value === record.outreach_status)?.label || OUTREACH_STATUS_OPTIONS.find(opt => opt.value === record.outreach_status)?.label) : '',
+        record.priority || '',
+        record.lead_stage ? getLeadStageLabel(record.lead_stage) : '',
+        record.last_action ? new Date(record.last_action).toLocaleDateString('en-GB') : '',
+        record.next_action ? new Date(record.next_action).toLocaleDateString('en-GB') : '',
+        record.next_action_status || '',
+        record.industry || '',
+        record.location || ''
+      ]);
+      
+      // Create CSV content
+      const csvContent = [csvHeaders, ...csvData]
+        .map(row => row.map(field => `"${String(field).replace(/"/g, '""')}"`).join(','))
+        .join('\n');
+      
+      // Create and download file
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      link.setAttribute('download', `master-table-${new Date().toISOString().split('T')[0]}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      toast({
+        title: "CSV Downloaded",
+        description: `Downloaded ${filteredRecords.length} records to CSV file.`,
+      });
+    } catch (error) {
+      console.error('Error downloading CSV:', error);
+      toast({
+        title: "Download Failed",
+        description: "Failed to download CSV file.",
+        variant: "destructive"
+      });
+    }
+  };
+
   const handleAddNewRow = async () => {
     try {
       // Generate a unique dedupe_key
@@ -752,8 +1052,38 @@ export function MasterTable() {
         throw error;
       }
         
-      // Reload the entire table to get the new record with proper mapping
-      await loadMasterData();
+      // Add new record to existing state instead of reloading
+      const newRecord: MasterRecord = {
+        id: data.id,
+        dedupe_key: data.dedupe_key,
+        linkedin_url: data.linkedin_url || null,
+        email: data.email || null,
+        channel: data.channel || null,
+        channels: (data as any).channels || null,
+        channel_from: (data as any).channel_from || null,
+        company: data.company || null,
+        name: data.name,
+        phone: data.phone || null,
+        website: data.website || null,
+        industry: data.industry || null,
+        emp_count: data.emp_count || null,
+        emp_count_raw: (data as any).emp_count_raw || null,
+        title: data.title || null,
+        location: data.location || null,
+        msg: data.msg || null,
+        last_action: (data as any).last_action_date || null,
+        next_action: (data as any).next_action_date || null,
+        next_action_status: (data as any).next_action_status || null,
+        priority: 'medium' as const,
+        custom_followup_days: null,
+        outreach_status: (data.outreach_status === 'closed' ? 'closed_won' : data.outreach_status || 'not_contacted') as OutreachStatus,
+        lead_stage: ((data as any).lead_stage || null) as LeadStage,
+        message_template_id: (data as any).message_template_id || null,
+        created_at: data.created_at,
+        updated_at: data.updated_at
+      };
+      
+      setRecords(current => [...current, newRecord]);
       
       toast({
         title: "New Row Added",
@@ -784,16 +1114,16 @@ export function MasterTable() {
   const getFontSizeClass = () => {
     switch (fontSize) {
       case 'small': return 'text-xs';
-      case 'large': return 'text-sm';
-      default: return 'text-xs';
+      case 'large': return 'text-base';
+      default: return 'text-sm';
     }
   };
 
   const getRowHeightClass = () => {
     switch (fontSize) {
-      case 'small': return 'py-2';
-      case 'large': return 'py-4';
-      default: return 'py-3';
+      case 'small': return 'py-0';
+      case 'large': return 'py-0.5';
+      default: return 'py-0';
     }
   };
 
@@ -813,6 +1143,10 @@ export function MasterTable() {
               style={{ backgroundColor: 'white', color: '#111827' }}
               onKeyDown={(e) => {
                 if (e.key === 'Escape') handleCancelEdit();
+                if (e.ctrlKey && e.key === 'v') {
+                  e.preventDefault();
+                  navigator.clipboard.readText().then(text => setEditValue(text));
+                }
               }}
             />
           ) : (
@@ -824,6 +1158,10 @@ export function MasterTable() {
               onKeyDown={(e) => {
                 if (e.key === 'Enter') handleSaveEdit();
                 if (e.key === 'Escape') handleCancelEdit();
+                if (e.ctrlKey && e.key === 'v') {
+                  e.preventDefault();
+                  navigator.clipboard.readText().then(text => setEditValue(text));
+                }
               }}
             />
           )}
@@ -844,10 +1182,42 @@ export function MasterTable() {
           isMerged && "sheets-cell-merged"
         )}
         onClick={() => handleCellEdit(record.id, field, value)}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          if (value) handleCopyValue(value);
+        }}
       >
         <span className={cn("truncate flex-1 text-gray-900", getFontSizeClass())}>{value || '-'}</span>
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           <Pencil className="w-3 h-3 text-gray-500 hover:text-blue-600" />
+          {value && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-5 w-5 p-0 hover:bg-green-200"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleCopyValue(value);
+              }}
+              title="Copy value"
+            >
+              <Database className="w-3 h-3 text-green-600" />
+            </Button>
+          )}
+          {copiedValue && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-5 w-5 p-0 hover:bg-orange-200"
+              onClick={(e) => {
+                e.stopPropagation();
+                handlePasteValue(record.id, field);
+              }}
+              title="Paste value"
+            >
+              <Plus className="w-3 h-3 text-orange-600" />
+            </Button>
+          )}
           <Button
             size="sm"
             variant="ghost"
@@ -879,16 +1249,16 @@ export function MasterTable() {
   return (
     <Card className="sheets-table">
       {/* Compact toolbar with search, filters, and add button */}
-      <div className="bg-white border-b border-gray-200 px-4 py-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="relative">
+      <div className="bg-white border-b border-gray-200 px-2 sm:px-4 py-3">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0">
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+            <div className="relative flex-1 sm:flex-none">
               <Search className="absolute left-2 top-2.5 h-4 w-4 text-gray-400" />
               <Input
                 placeholder="Search records..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-8 w-64 sheets-search-input"
+                className="pl-8 w-full sm:w-64 sheets-search-input"
               />
             </div>
             <Button 
@@ -902,6 +1272,10 @@ export function MasterTable() {
             </Button>
             <Button variant="outline" size="sm" onClick={loadMasterData} className="sheets-button">
               <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
+            </Button>
+            <Button variant="outline" size="sm" onClick={downloadCSV} className="sheets-button">
+              <Download className="w-4 h-4 mr-2" />
+              CSV
             </Button>
             <Select value={fontSize} onValueChange={(value) => setFontSize(value as 'small' | 'medium' | 'large')}>
               <SelectTrigger className="w-32">
@@ -934,28 +1308,76 @@ export function MasterTable() {
               </SelectContent>
             </Select>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
             <Button 
               variant="default" 
               size="sm" 
               onClick={handleAddNewRow}
-              className="bg-blue-600 hover:bg-blue-700 text-white"
+              className="bg-blue-600 hover:bg-blue-700 text-white flex-1 sm:flex-none"
             >
               <Plus className="w-4 h-4 mr-2" />
               Add New Row
             </Button>
-            {selectedRows.size > 0 && (
-              <Button 
-                variant="destructive" 
-                size="sm" 
-                onClick={handleDeleteRows}
-                className="bg-red-600 hover:bg-red-700 text-white"
-              >
-                <Trash2 className="w-4 h-4 mr-2" />
-                Delete ({selectedRows.size})
-              </Button>
+            {selectedRows.size > 1 && (
+              <>
+                <div className="flex items-center gap-2">
+                  <Select value={bulkStatusValue} onValueChange={(value) => setBulkStatusValue(value as OutreachStatus)}>
+                    <SelectTrigger className="w-40">
+                      <SelectValue placeholder="Bulk Status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {OUTREACH_STATUS_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={handleBulkStatusUpdate}
+                    disabled={!bulkStatusValue}
+                    className="bg-blue-600 hover:bg-blue-700 text-white"
+                  >
+                    Update Status ({selectedRows.size})
+                  </Button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Select value={bulkChannelValue} onValueChange={(value) => setBulkChannelValue(value as ChannelType)}>
+                    <SelectTrigger className="w-40">
+                      <SelectValue placeholder="Bulk Channel" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CHANNEL_FROM_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={handleBulkChannelUpdate}
+                    disabled={!bulkChannelValue}
+                    className="bg-green-600 hover:bg-green-700 text-white"
+                  >
+                    Update Channel ({selectedRows.size})
+                  </Button>
+                </div>
+                <Button 
+                  variant="destructive" 
+                  size="sm" 
+                  onClick={handleDeleteRows}
+                  className="bg-red-600 hover:bg-red-700 text-white flex-1 sm:flex-none"
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Delete ({selectedRows.size})
+                </Button>
+              </>
             )}
-            <div className="flex items-center gap-2 text-sm text-gray-600">
+            <div className="flex flex-wrap items-center gap-2 text-sm text-gray-600 w-full sm:w-auto justify-center sm:justify-start">
               <Badge variant="secondary" className="bg-blue-100 text-blue-800">{filteredRecords.length} records</Badge>
               {filters.length > 0 && (
                 <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
@@ -995,8 +1417,8 @@ export function MasterTable() {
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-2">Channel</label>
               <Select onValueChange={(value) => handleFilter('channel_from', value === 'all' ? '' : value)}>
-                <SelectTrigger className="text-xs border-gray-300 focus:border-blue-500 bg-white">
-                  <SelectValue placeholder="All channels" className="text-gray-400" />
+                <SelectTrigger className="text-xs border-gray-300 focus:border-blue-500 bg-white text-gray-500">
+                  <SelectValue placeholder="All channels" className="text-gray-500" />
                 </SelectTrigger>
                 <SelectContent className="bg-white">
                   <SelectItem value="all" className="text-gray-900">All channels</SelectItem>
@@ -1011,8 +1433,8 @@ export function MasterTable() {
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-2">Status</label>
               <Select onValueChange={(value) => handleFilter('outreach_status', value === 'all' ? '' : value)}>
-                <SelectTrigger className="text-xs border-gray-300 focus:border-blue-500 bg-white">
-                  <SelectValue placeholder="All statuses" className="text-gray-400" />
+                <SelectTrigger className="text-xs border-gray-300 focus:border-blue-500 bg-white text-gray-500">
+                  <SelectValue placeholder="All statuses" className="text-gray-500" />
                 </SelectTrigger>
                 <SelectContent className="bg-white">
                   <SelectItem value="all" className="text-gray-900">All statuses</SelectItem>
@@ -1028,72 +1450,72 @@ export function MasterTable() {
         </div>
       )}
 
-      <CardContent className="p-0">
+      <CardContent className="p-0 max-h-[calc(100vh-200px)] overflow-y-auto">
         <div className="overflow-x-auto">
           <div className="inline-block min-w-full align-middle">
             <div className="overflow-hidden border border-gray-200 rounded-lg">
-              <table className="min-w-full divide-y divide-gray-200 bg-white">
+              <table className="min-w-full divide-y divide-gray-200 bg-white table-auto">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-3 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
+                    <th className="px-2 py-1 text-center text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
                       <Checkbox 
                         checked={selectedRows.size === filteredRecords.length && filteredRecords.length > 0}
                         onCheckedChange={selectAllRows}
                         className="data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600"
                       />
                     </th>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
+                    <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
                       {renderSortableHeader('name', 'Name')}
                     </th>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
+                    <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
                       {renderSortableHeader('email', 'Email')}
                     </th>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
+                    <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
                       {renderSortableHeader('company', 'Company')}
                     </th>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
+                    <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
                       {renderSortableHeader('title', 'Title')}
                     </th>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
+                    <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
                       {renderSortableHeader('phone', 'Phone')}
                     </th>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
+                    <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
+                      {renderSortableHeader('emp_count_raw', 'Size')}
+                    </th>
+                    <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
                       {renderSortableHeader('linkedin_url', 'LinkedIn')}
                     </th>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
-                      {renderSortableHeader('channel', 'Source')}
+                    <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
+                      {renderSortableHeader('channels', 'Sources')}
                     </th>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
+                    <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
                       Channel
                     </th>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
+                    <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
                       Status
                     </th>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
+                    <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
                       Priority
                     </th>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
+                    <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
                       Lead Stage
                     </th>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
-                      {renderSortableHeader('msg', 'Message')}
-                    </th>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
+                    <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
                       {renderSortableHeader('last_action', 'Last Action')}
                     </th>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
+                    <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
                       {renderSortableHeader('next_action', 'Next Action Date')}
                     </th>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200 min-w-[180px]">
+                    <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200 min-w-[180px]">
                       {renderSortableHeader('next_action_status', 'Next Action Status')}
                     </th>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200 min-w-[200px]">
+                    <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200 min-w-[200px]">
                       Message Templates
                     </th>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
+                    <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
                       {renderSortableHeader('industry', 'Industry')}
                     </th>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
+                    <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
                       {renderSortableHeader('location', 'Location')}
                     </th>
                   </tr>
@@ -1101,14 +1523,14 @@ export function MasterTable() {
                 <tbody className="bg-white divide-y divide-gray-200">
                   {loading ? (
                     <tr>
-                      <td colSpan={16} className="px-3 py-8 text-center">
+                      <td colSpan={17} className="px-2 py-4 text-center">
                         <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-gray-400" />
                         <span className="text-gray-500">Loading master data...</span>
                       </td>
                     </tr>
                   ) : filteredRecords.length === 0 ? (
                     <tr>
-                      <td colSpan={16} className="px-3 py-8 text-center text-gray-500">
+                      <td colSpan={16} className="px-2 py-4 text-center text-gray-500">
                         {records.length === 0 
                           ? "No records found. Upload CSV data to get started."
                           : `No records match current filters. Total records: ${records.length}`
@@ -1117,47 +1539,104 @@ export function MasterTable() {
                     </tr>
                   ) : (
                     filteredRecords.map((record, index) => (
-                      <tr key={record.id} className={cn(
-                        "hover:bg-blue-50 transition-colors",
-                        selectedRows.has(record.id) && "bg-blue-100",
-                        !selectedRows.has(record.id) && index % 2 === 0 && "bg-gray-50",
-                        !selectedRows.has(record.id) && index % 2 === 1 && "bg-white"
-                      )}>
-                        <td className={cn("px-3 border-r border-gray-200 text-center", getRowHeightClass())}>
-                          <Checkbox 
-                            checked={selectedRows.has(record.id)}
-                            onCheckedChange={() => toggleRowSelection(record.id)}
-                            className="data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600"
-                          />
+                      <tr 
+                        key={record.id} 
+                        className={cn(
+                          "hover:bg-blue-50 transition-colors cursor-pointer",
+                          selectedRows.has(record.id) && "bg-blue-100",
+                          !selectedRows.has(record.id) && index % 2 === 0 && "bg-gray-50",
+                          !selectedRows.has(record.id) && index % 2 === 1 && "bg-white",
+                          isDragging && "select-none"
+                        )}
+                        onClick={(e) => {
+                          // Only trigger row selection if clicking outside the checkbox column
+                          const target = e.target as HTMLElement;
+                          if (target.closest('td:first-child')) return; // Don't trigger if clicking checkbox column
+                          toggleRowSelection(record.id, index, e);
+                        }}
+                        onMouseDown={(e) => handleMouseDown(index, e)}
+                        onMouseEnter={() => handleMouseEnter(index)}
+                        onMouseUp={handleMouseUp}
+                      >
+                        <td className={cn("px-2 py-0.5 border-r border-gray-200 text-center", isDragging && "select-none")}>
+                          <div 
+                            className="flex items-center justify-center h-full w-full cursor-pointer p-1"
+                            onMouseDown={(e) => {
+                              e.stopPropagation();
+                              handleMouseDown(index, e);
+                            }}
+                            onMouseEnter={() => handleMouseEnter(index)}
+                            onMouseUp={(e) => {
+                              e.stopPropagation();
+                              handleMouseUp();
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const isCurrentlySelected = selectedRows.has(record.id);
+                              if (e.shiftKey && lastClickedIndex !== null) {
+                                // Shift + Click: Select range
+                                const startIndex = Math.min(lastClickedIndex, index);
+                                const endIndex = Math.max(lastClickedIndex, index);
+                                const rangeIds = filteredRecords.slice(startIndex, endIndex + 1).map(r => r.id);
+                                
+                                setSelectedRows(current => {
+                                  const newSet = new Set(current);
+                                  rangeIds.forEach(id => newSet.add(id));
+                                  return newSet;
+                                });
+                              } else {
+                                // Normal click: Toggle single row
+                                setSelectedRows(current => {
+                                  const newSet = new Set(current);
+                                  if (isCurrentlySelected) {
+                                    newSet.delete(record.id);
+                                  } else {
+                                    newSet.add(record.id);
+                                  }
+                                  return newSet;
+                                });
+                              }
+                              setLastClickedIndex(index);
+                            }}
+                          >
+                            <Checkbox 
+                              checked={selectedRows.has(record.id)}
+                              onCheckedChange={() => {}} // Handled by parent div click
+                              className="data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600 pointer-events-none"
+                            />
+                          </div>
                         </td>
-                        <td className={cn("px-3 border-r border-gray-200 text-gray-900", getRowHeightClass())}>
+                        <td className={cn("px-2 py-0.5 border-r border-gray-200 text-gray-900")}>
                           {renderEditableCell(record, 'name', record.name)}
                         </td>
-                        <td className={cn("px-3 border-r border-gray-200 text-gray-900", getRowHeightClass())}>
+                        <td className={cn("px-2 py-0.5 border-r border-gray-200 text-gray-900")}>
                           {renderEditableCell(record, 'email', record.email)}
                         </td>
-                        <td className={cn("px-3 border-r border-gray-200 text-gray-900", getRowHeightClass())}>
+                        <td className={cn("px-2 py-0.5 border-r border-gray-200 text-gray-900")}>
                           {renderEditableCell(record, 'company', record.company)}
                         </td>
-                        <td className={cn("px-3 border-r border-gray-200 text-gray-900", getRowHeightClass())}>
+                        <td className={cn("px-2 py-0.5 border-r border-gray-200 text-gray-900")}>
                           {renderEditableCell(record, 'title', record.title)}
                         </td>
-                        <td className={cn("px-3 border-r border-gray-200 text-gray-900", getRowHeightClass())}>
+                        <td className={cn("px-2 py-0.5 border-r border-gray-200 text-gray-900")}>
                           {renderEditableCell(record, 'phone', record.phone)}
                         </td>
-                        <td className={cn("px-3 border-r border-gray-200 text-gray-900", getRowHeightClass())}>
+                        <td className={cn("px-2 py-0.5 border-r border-gray-200 text-gray-900")}>
+                          {renderEditableCell(record, 'emp_count_raw', record.emp_count_raw)}
+                        </td>
+                        <td className={cn("px-2 py-0.5 border-r border-gray-200 text-gray-900")}>
                           {renderEditableCell(record, 'linkedin_url', record.linkedin_url)}
                         </td>
-                        <td className={cn("px-3 border-r border-gray-200 text-gray-900", getRowHeightClass())}>
-                          <span className={cn("text-gray-700", getFontSizeClass())}>{record.channel || '-'}</span>
+                        <td className={cn("px-2 py-0.5 border-r border-gray-200 text-gray-900")}>
+                          <span className={cn("text-gray-700", getFontSizeClass())}>{record.channels || '-'}</span>
                         </td>
-                        <td className={cn("px-3 border-r border-gray-200 text-gray-900", getRowHeightClass())}>
+                        <td className={cn("px-2 py-0.5 border-r border-gray-200 text-gray-900")}>
                           <Select
                             value={record.channel_from || "none"}
                             onValueChange={(value) => handleChannelFromChange(record.id, value === 'none' ? null : value as ChannelType)}
                           >
                             <SelectTrigger 
-                              className={cn("w-32 h-9 border-2 border-gray-300 bg-white text-gray-900 font-medium", getFontSizeClass())}
+                              className={cn("w-32 h-7 border-2 border-gray-300 bg-white text-gray-900 font-medium", getFontSizeClass())}
                               style={{ backgroundColor: 'white', color: '#111827' }}
                             >
                               <SelectValue placeholder="Select...">
@@ -1186,61 +1665,69 @@ export function MasterTable() {
                             </SelectContent>
                           </Select>
                         </td>
-                        <td className="px-3 py-2 border-r border-gray-200 text-gray-900">
-                          <Select
-                            value={record.outreach_status}
-                            onValueChange={(value) => handleStatusChange(record.id, value as OutreachStatus)}
-                          >
-                            <SelectTrigger 
-                              className="w-44 h-9 text-xs sheets-status-trigger border-2 border-gray-300 whitespace-nowrap"
-                              style={{
-                                backgroundColor: 'white',
-                                color: '#111827'
-                              }}
+                        <td className="px-2 py-0.5 border-r border-gray-200 text-gray-900">
+                          {record.channel_from ? (
+                            <Select
+                              value={record.outreach_status || ""}
+                              onValueChange={(value) => handleStatusChange(record.id, value as OutreachStatus)}
                             >
-                              <SelectValue>
-                                <div className="flex items-center gap-2">
-                                  <div className={cn("w-2 h-2 rounded-full", getStatusColor(record.outreach_status))} />
-                                  <span className="text-xs text-gray-900 font-medium whitespace-nowrap" style={{ color: '#111827' }}>
-                                    {getStatusOptionsForChannel(record.channel_from).find(opt => opt.value === record.outreach_status)?.label || 
-                                     OUTREACH_STATUS_OPTIONS.find(opt => opt.value === record.outreach_status)?.label}
-                                  </span>
-                                </div>
-                              </SelectValue>
-                            </SelectTrigger>
-                            <SelectContent 
-                              className="sheets-status-dropdown bg-white border border-gray-200 shadow-lg"
-                              style={{
-                                backgroundColor: 'white',
-                                color: '#111827'
-                              }}
-                            >
-                              {getStatusOptionsForChannel(record.channel_from).map((option) => (
-                                <SelectItem 
-                                  key={option.value} 
-                                  value={option.value} 
-                                  className="sheets-status-item bg-white text-gray-900 hover:bg-gray-100 focus:bg-gray-100"
-                                  style={{
-                                    backgroundColor: 'white',
-                                    color: '#111827'
-                                  }}
-                                >
-                                  <div className="flex items-center gap-2">
-                                    <div className={cn("w-2 h-2 rounded-full", getStatusColor(option.value as OutreachStatus))} />
-                                    <span className="text-gray-900 font-medium" style={{ color: '#111827' }}>{option.label}</span>
-                                  </div>
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                              <SelectTrigger 
+                                className="w-44 h-7 text-xs sheets-status-trigger border-2 border-gray-300 whitespace-nowrap"
+                                style={{
+                                  backgroundColor: 'white',
+                                  color: '#111827'
+                                }}
+                              >
+                                <SelectValue placeholder="Select status...">
+                                  {record.outreach_status ? (
+                                    <div className="flex items-center gap-2">
+                                      <div className={cn("w-2 h-2 rounded-full", getStatusColor(record.outreach_status))} />
+                                      <span className="text-xs text-gray-900 font-medium whitespace-nowrap" style={{ color: '#111827' }}>
+                                        {getStatusOptionsForChannel(record.channel_from).find(opt => opt.value === record.outreach_status)?.label || 
+                                         OUTREACH_STATUS_OPTIONS.find(opt => opt.value === record.outreach_status)?.label}
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <span className="text-xs text-gray-500">Select status...</span>
+                                  )}
+                                </SelectValue>
+                              </SelectTrigger>
+                              <SelectContent 
+                                className="sheets-status-dropdown bg-white border border-gray-200 shadow-lg"
+                                style={{
+                                  backgroundColor: 'white',
+                                  color: '#111827'
+                                }}
+                              >
+                                {getStatusOptionsForChannel(record.channel_from).map((option) => (
+                                  <SelectItem 
+                                    key={option.value} 
+                                    value={option.value} 
+                                    className="sheets-status-item bg-white text-gray-900 hover:bg-gray-100 focus:bg-gray-100"
+                                    style={{
+                                      backgroundColor: 'white',
+                                      color: '#111827'
+                                    }}
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <div className={cn("w-2 h-2 rounded-full", getStatusColor(option.value as OutreachStatus))} />
+                                      <span className="text-gray-900 font-medium" style={{ color: '#111827' }}>{option.label}</span>
+                                    </div>
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <span className={cn("text-gray-500 text-xs", getFontSizeClass())}>NULL</span>
+                          )}
                         </td>
-                        <td className="px-3 py-2 border-r border-gray-200 text-gray-900">
+                        <td className="px-2 py-0.5 border-r border-gray-200 text-gray-900">
                           <Select
                             value={record.priority}
                             onValueChange={(value) => handlePriorityChange(record.id, value as 'high' | 'medium' | 'low')}
                           >
                             <SelectTrigger 
-                              className="w-20 h-9 text-xs border-2 border-gray-300 bg-white text-gray-900 font-medium"
+                              className="w-20 h-7 text-xs border-2 border-gray-300 bg-white text-gray-900 font-medium"
                               style={{ backgroundColor: 'white', color: '#111827' }}
                             >
                               <SelectValue>
@@ -1281,80 +1768,62 @@ export function MasterTable() {
                             </SelectContent>
                           </Select>
                         </td>
-                        <td className="px-3 py-2 border-r border-gray-200 text-gray-900">
-                          <Select
-                            value={record.lead_stage}
-                            onValueChange={(value) => handleLeadStageChange(record.id, value as LeadStage)}
-                          >
-                            <SelectTrigger 
-                              className="w-44 h-9 text-xs border-2 border-gray-300 bg-white text-gray-900 font-medium"
-                              style={{ backgroundColor: 'white', color: '#111827' }}
+                        <td className="px-2 py-0.5 border-r border-gray-200 text-gray-900">
+                          {record.channel_from && record.outreach_status ? (
+                            <Select
+                              value={record.lead_stage || ""}
+                              onValueChange={(value) => handleLeadStageChange(record.id, value as LeadStage)}
                             >
-                              <SelectValue>
-                                <div className="flex items-center gap-2">
-                                  <div className={cn("w-2 h-2 rounded-full", getLeadStageColor(record.lead_stage))} />
-                                  <span className="text-xs text-gray-900 font-medium" style={{ color: '#111827' }}>
-                                    {getLeadStageLabel(record.lead_stage)}
-                                  </span>
-                                </div>
-                              </SelectValue>
-                            </SelectTrigger>
-                            <SelectContent 
-                              className="bg-white border border-gray-200 shadow-lg"
-                              style={{ backgroundColor: 'white', color: '#111827' }}
-                            >
-                              {LEAD_STAGE_OPTIONS.map((option) => (
-                                <SelectItem 
-                                  key={option.value} 
-                                  value={option.value} 
-                                  className="bg-white text-gray-900 hover:bg-gray-100 focus:bg-gray-100"
-                                  style={{ backgroundColor: 'white', color: '#111827' }}
-                                >
-                                  <div className="flex items-center gap-2">
-                                    <div className={cn("w-2 h-2 rounded-full", getLeadStageColor(option.value))} />
-                                    <span className="text-gray-900 font-medium" style={{ color: '#111827' }}>{option.label}</span>
-                                  </div>
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </td>
-                        <td className="px-3 py-2 border-r border-gray-200 text-gray-900">
-                          {record.msg ? (
-                            <div className="flex items-center gap-2">
-                              <div className="flex items-center gap-2 bg-gradient-to-r from-blue-50 to-indigo-50 px-3 py-1.5 rounded-full border border-blue-200">
-                                <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                                <span className="text-xs font-medium text-blue-700">
-                                  MSG-{record.msg.slice(-8).toUpperCase()}
-                                </span>
-                              </div>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-7 w-7 p-0 hover:bg-blue-100 rounded-full transition-colors"
-                                onClick={() => {
-                                  // Navigate to messages or show message details
-                                  console.log('View message:', record.msg);
-                                }}
+                              <SelectTrigger 
+                                className="w-44 h-7 text-xs border-2 border-gray-300 bg-white text-gray-900 font-medium"
+                                style={{ backgroundColor: 'white', color: '#111827' }}
                               >
-                                <Eye className="h-3 w-3 text-blue-600" />
-                              </Button>
-                            </div>
+                                <SelectValue placeholder="Select lead stage...">
+                                  {record.lead_stage ? (
+                                    <div className="flex items-center gap-2">
+                                      <div className={cn("w-2 h-2 rounded-full", getLeadStageColor(record.lead_stage))} />
+                                      <span className="text-xs text-gray-900 font-medium" style={{ color: '#111827' }}>
+                                        {getLeadStageLabel(record.lead_stage)}
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <span className="text-xs text-gray-500">Select lead stage...</span>
+                                  )}
+                                </SelectValue>
+                              </SelectTrigger>
+                              <SelectContent 
+                                className="bg-white border border-gray-200 shadow-lg"
+                                style={{ backgroundColor: 'white', color: '#111827' }}
+                              >
+                                {LEAD_STAGE_OPTIONS.map((option) => (
+                                  <SelectItem 
+                                    key={option.value} 
+                                    value={option.value} 
+                                    className="bg-white text-gray-900 hover:bg-gray-100 focus:bg-gray-100"
+                                    style={{ backgroundColor: 'white', color: '#111827' }}
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <div className={cn("w-2 h-2 rounded-full", getLeadStageColor(option.value))} />
+                                      <span className="text-gray-900 font-medium" style={{ color: '#111827' }}>{option.label}</span>
+                                    </div>
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
                           ) : (
-                            <div className="flex items-center gap-2 text-gray-400">
-                              <div className="w-2 h-2 bg-gray-300 rounded-full"></div>
-                              <span className="text-xs">No message</span>
-                            </div>
+                            <span className={cn("text-gray-500 text-xs", getFontSizeClass())}>
+                              NULL
+                            </span>
                           )}
                         </td>
-                        <td className={cn("px-3 border-r border-gray-200 text-gray-700", getRowHeightClass())}>
+                        <td className={cn("px-2 py-0.5 border-r border-gray-200 text-gray-700")}>
                           {record.last_action ? new Date(record.last_action).toLocaleDateString('en-GB', { 
                             year: '2-digit', 
                             month: '2-digit', 
                             day: '2-digit' 
                           }) : '-'}
                         </td>
-                        <td className="px-3 py-2 border-r border-gray-200 text-gray-900">
+                        <td className="px-2 py-0.5 border-r border-gray-200 text-gray-900">
                           <span className="text-xs text-gray-700">
                             {record.next_action ? new Date(record.next_action).toLocaleDateString('en-GB', { 
                               year: '2-digit', 
@@ -1363,17 +1832,17 @@ export function MasterTable() {
                             }) : '-'}
                           </span>
                         </td>
-                        <td className="px-3 py-2 border-r border-gray-200 text-gray-900 min-w-[180px]">
-                          <span className={cn("text-gray-700 bg-blue-50 px-2 py-1 rounded-md whitespace-nowrap", getFontSizeClass())}>
+                        <td className="px-2 py-0.5 border-r border-gray-200 text-gray-900 min-w-[180px]">
+                          <span className={cn("text-gray-700 bg-blue-50 px-1 py-0.5 rounded-md whitespace-nowrap text-xs")}>
                             {record.next_action_status || 'No action defined'}
                           </span>
                         </td>
-                        <td className="px-3 py-2 border-r border-gray-200 text-gray-900 min-w-[200px]">
+                        <td className="px-2 py-0.5 border-r border-gray-200 text-gray-900 min-w-[200px]">
                           <Select
                             value={record.message_template_id || "none"}
                             onValueChange={(value) => handleTemplateSelect(record.id, value)}
                           >
-                            <SelectTrigger className="w-full bg-white border-gray-200 hover:bg-gray-50">
+                            <SelectTrigger className="w-full h-7 bg-white border-gray-200 hover:bg-gray-50 text-xs">
                               <SelectValue placeholder="Select template">
                                 {record.message_template_id ? 
                                   messageTemplates.find(t => t.id === record.message_template_id)?.name || "Select template"
@@ -1394,10 +1863,10 @@ export function MasterTable() {
                             </SelectContent>
                           </Select>
                         </td>
-                        <td className="px-3 py-2 border-r border-gray-200 text-gray-900">
+                        <td className="px-2 py-0.5 border-r border-gray-200 text-gray-900">
                           {renderEditableCell(record, 'industry', record.industry)}
                         </td>
-                        <td className="px-3 py-2 border-r border-gray-200 text-gray-900">
+                        <td className="px-2 py-0.5 border-r border-gray-200 text-gray-900">
                           {renderEditableCell(record, 'location', record.location)}
                         </td>
                       </tr>

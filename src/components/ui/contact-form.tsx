@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { getStatusOptionsForChannel, ChannelType, LEAD_STAGE_OPTIONS } from "@/lib/status-config";
 
 interface Contact {
   id: string;
@@ -19,9 +20,9 @@ interface Contact {
   location: string | null;
   industry: string | null;
   emp_count: string | null;
-  channel: string;
-  lead_stage: string;
-  outreach_status: string;
+  channel: string | null;
+  lead_stage: string | null;
+  outreach_status: string | null;
   last_action_date: string | null;
   next_action_date: string | null;
   created_at?: string;
@@ -40,27 +41,14 @@ const channelOptions = [
   { value: 'linkedin', label: 'LinkedIn' },
   { value: 'whatsapp', label: 'WhatsApp' },
   { value: 'sms', label: 'SMS' },
+  { value: 'phone', label: 'Phone' },
   { value: 'clay', label: 'Clay' },
   { value: 'other', label: 'Other' }
 ];
 
-const leadStageOptions = [
-  { value: 'new', label: 'New' },
-  { value: 'qualified', label: 'Qualified' },
-  { value: 'meeting_scheduled', label: 'Meeting Scheduled' },
-  { value: 'proposal_sent', label: 'Proposal Sent' },
-  { value: 'closed_won', label: 'Closed Won' },
-  { value: 'closed_lost', label: 'Closed Lost' }
-];
+// Lead stage options are now imported from status-config
 
-const outreachStatusOptions = [
-  { value: 'not_contacted', label: 'Not Contacted' },
-  { value: 'contacted', label: 'Contacted' },
-  { value: 'replied', label: 'Replied' },
-  { value: 'interested', label: 'Interested' },
-  { value: 'not_interested', label: 'Not Interested' },
-  { value: 'closed', label: 'Closed' }
-];
+// Remove static outreach status options - will be dynamic based on channel
 
 export function ContactForm({ isOpen, onClose, contact, onSuccess }: ContactFormProps) {
   const [formData, setFormData] = useState<Contact>({
@@ -75,9 +63,9 @@ export function ContactForm({ isOpen, onClose, contact, onSuccess }: ContactForm
     location: '',
     industry: '',
     emp_count: '',
-    channel: 'email',
-    lead_stage: 'new',
-    outreach_status: 'not_contacted',
+    channel: null,
+    lead_stage: null,
+    outreach_status: null,
     last_action_date: '',
     next_action_date: '',
     created_at: '',
@@ -102,9 +90,9 @@ export function ContactForm({ isOpen, onClose, contact, onSuccess }: ContactForm
           location: contact.location || '',
           industry: contact.industry || '',
           emp_count: contact.emp_count || '',
-          channel: contact.channel || 'email',
-          lead_stage: contact.lead_stage || 'new',
-          outreach_status: contact.outreach_status || 'not_contacted',
+          channel: contact.channel || null,
+          lead_stage: contact.lead_stage || null,
+          outreach_status: contact.outreach_status || null,
           last_action_date: contact.last_action_date || '',
           next_action_date: contact.next_action_date || '',
           created_at: contact.created_at || '',
@@ -124,9 +112,9 @@ export function ContactForm({ isOpen, onClose, contact, onSuccess }: ContactForm
           location: '',
           industry: '',
           emp_count: '',
-          channel: 'email',
-          lead_stage: 'new',
-          outreach_status: 'not_contacted',
+          channel: null,
+          lead_stage: null,
+          outreach_status: null,
           last_action_date: '',
           next_action_date: '',
           created_at: '',
@@ -229,10 +217,31 @@ export function ContactForm({ isOpen, onClose, contact, onSuccess }: ContactForm
   };
 
   const handleInputChange = (field: keyof Contact, value: string) => {
-    setFormData(prev => ({
-      ...prev,
-      [field]: value
-    }));
+    setFormData(prev => {
+      const newData = {
+        ...prev,
+        [field]: value
+      };
+      
+      // Reset dependent fields when channel changes
+      if (field === 'channel') {
+        newData.outreach_status = null;
+        newData.lead_stage = null;
+      }
+      
+      // Reset lead stage when outreach status changes
+      if (field === 'outreach_status') {
+        newData.lead_stage = null;
+      }
+      
+      return newData;
+    });
+  };
+
+  // Get available status options based on selected channel
+  const getAvailableStatusOptions = () => {
+    if (!formData.channel) return [];
+    return getStatusOptionsForChannel(formData.channel as ChannelType);
   };
 
   return (
@@ -361,7 +370,7 @@ export function ContactForm({ isOpen, onClose, contact, onSuccess }: ContactForm
             {/* Channel */}
             <div>
               <Label htmlFor="channel">Channel</Label>
-              <Select value={formData.channel} onValueChange={(value) => handleInputChange('channel', value)}>
+              <Select value={formData.channel || ''} onValueChange={(value) => handleInputChange('channel', value)}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select channel" />
                 </SelectTrigger>
@@ -375,39 +384,44 @@ export function ContactForm({ isOpen, onClose, contact, onSuccess }: ContactForm
               </Select>
             </div>
 
-            {/* Lead Stage */}
-            <div>
-              <Label htmlFor="lead_stage">Lead Stage</Label>
-              <Select value={formData.lead_stage} onValueChange={(value) => handleInputChange('lead_stage', value)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select lead stage" />
-                </SelectTrigger>
-                <SelectContent>
-                  {leadStageOptions.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {/* Outreach Status - Only show if channel is selected */}
+            {formData.channel && (
+              <div>
+                <Label htmlFor="outreach_status">Outreach Status</Label>
+                <Select value={formData.outreach_status || ''} onValueChange={(value) => handleInputChange('outreach_status', value)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select outreach status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {getAvailableStatusOptions().map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
-            {/* Outreach Status */}
-            <div>
-              <Label htmlFor="outreach_status">Outreach Status</Label>
-              <Select value={formData.outreach_status} onValueChange={(value) => handleInputChange('outreach_status', value)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select outreach status" />
-                </SelectTrigger>
-                <SelectContent>
-                  {outreachStatusOptions.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {/* Lead Stage - Only show if both channel and status are selected */}
+            {formData.channel && formData.outreach_status && (
+              <div>
+                <Label htmlFor="lead_stage">Lead Stage</Label>
+                <Select value={formData.lead_stage || ''} onValueChange={(value) => handleInputChange('lead_stage', value)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select lead stage" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {LEAD_STAGE_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
 
             {/* Last Action Date */}
             <div>
