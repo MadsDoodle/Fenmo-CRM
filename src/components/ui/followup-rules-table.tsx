@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ChevronUp, ChevronDown, Search, Filter, RefreshCw, ArrowUpDown, Pencil, Check, X, Database } from "lucide-react";
+import { ChevronUp, ChevronDown, Search, Filter, RefreshCw, ArrowUpDown, Pencil, Check, X, Database, Type } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -43,6 +43,7 @@ export function FollowupRulesTable() {
   const [showFilters, setShowFilters] = useState(false);
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [channelFilter, setChannelFilter] = useState("all");
+  const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>('medium');
   const { toast } = useToast();
 
   const loadFollowupRules = useCallback(async () => {
@@ -216,6 +217,22 @@ export function FollowupRulesTable() {
     }
   };
 
+  const getFontSizeClass = () => {
+    switch (fontSize) {
+      case 'small': return 'text-xs';
+      case 'large': return 'text-sm';
+      default: return 'text-xs';
+    }
+  };
+
+  const getRowHeightClass = () => {
+    switch (fontSize) {
+      case 'small': return 'py-2';
+      case 'large': return 'py-4';
+      default: return 'py-3';
+    }
+  };
+
   const renderEditableCell = (rule: FollowupRule, field: string, value: any) => {
     const isEditing = editingCell?.id === rule.id && editingCell.field === field;
     
@@ -225,7 +242,8 @@ export function FollowupRulesTable() {
           <Input
             value={editValue}
             onChange={(e) => setEditValue(e.target.value)}
-            className="text-xs border-2 border-blue-400 focus:border-blue-600"
+            className="text-xs border-2 border-blue-400 focus:border-blue-600 bg-white text-gray-900 placeholder-gray-500 focus:bg-white"
+            style={{ backgroundColor: 'white !important', color: '#111827 !important' }}
             onKeyDown={(e) => {
               if (e.key === 'Enter') handleSaveEdit();
               if (e.key === 'Escape') handleCancelEdit();
@@ -246,7 +264,7 @@ export function FollowupRulesTable() {
         className="flex items-center gap-1 group sheets-cell-editable"
         onClick={() => handleCellEdit(rule.id, field, value)}
       >
-        <span className="text-xs truncate flex-1 text-gray-900">{value || '-'}</span>
+        <span className={cn("truncate flex-1 text-gray-900", getFontSizeClass())}>{value || '-'}</span>
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           <Pencil className="w-3 h-3 text-gray-500 hover:text-blue-600" />
         </div>
@@ -311,6 +329,36 @@ export function FollowupRulesTable() {
             <Button variant="outline" size="sm" onClick={loadFollowupRules} className="sheets-button">
               <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
             </Button>
+            <Select value={fontSize} onValueChange={(value) => setFontSize(value as 'small' | 'medium' | 'large')}>
+              <SelectTrigger className="w-32">
+                <SelectValue>
+                  <div className="flex items-center gap-2">
+                    <Type className="w-4 h-4" />
+                    <span className="capitalize">{fontSize}</span>
+                  </div>
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="small">
+                  <div className="flex items-center gap-2">
+                    <Type className="w-3 h-3" />
+                    <span>Small</span>
+                  </div>
+                </SelectItem>
+                <SelectItem value="medium">
+                  <div className="flex items-center gap-2">
+                    <Type className="w-4 h-4" />
+                    <span>Medium</span>
+                  </div>
+                </SelectItem>
+                <SelectItem value="large">
+                  <div className="flex items-center gap-2">
+                    <Type className="w-5 h-5" />
+                    <span>Large</span>
+                  </div>
+                </SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
         <div className="flex items-center gap-4 text-sm text-gray-600">
@@ -419,31 +467,31 @@ export function FollowupRulesTable() {
                         selectedRows.has(rule.id) && "bg-blue-100",
                         index % 2 === 0 ? "bg-white" : "bg-gray-50"
                       )}>
-                        <td className="px-3 py-2 whitespace-nowrap text-center border-r border-gray-200">
+                        <td className={cn("px-3 whitespace-nowrap text-center border-r border-gray-200", getRowHeightClass())}>
                           <Checkbox 
                             checked={selectedRows.has(rule.id)}
                             onCheckedChange={() => toggleRowSelection(rule.id)}
                             className="data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600"
                           />
                         </td>
-                        <td className="px-3 py-2 whitespace-nowrap border-r border-gray-200">
-                          <Badge variant="outline" className="capitalize">
+                        <td className={cn("px-3 whitespace-nowrap border-r border-gray-200", getRowHeightClass())}>
+                          <Badge variant="outline" className="capitalize bg-blue-100 text-blue-800 border-blue-300 px-2 py-0.5">
                             {rule.channel}
                           </Badge>
                         </td>
-                        <td className="px-3 py-2 whitespace-nowrap border-r border-gray-200">
+                        <td className={cn("px-3 whitespace-nowrap border-r border-gray-200", getRowHeightClass())}>
                           {renderEditableCell(rule, 'outreach_status', rule.outreach_status)}
                         </td>
-                        <td className="px-3 py-2 whitespace-nowrap border-r border-gray-200">
+                        <td className={cn("px-3 whitespace-nowrap border-r border-gray-200", getRowHeightClass())}>
                           {renderEditableCell(rule, 'channel_sequence', rule.channel_sequence)}
                         </td>
-                        <td className="px-3 py-2 whitespace-nowrap border-r border-gray-200">
+                        <td className={cn("px-3 whitespace-nowrap border-r border-gray-200", getRowHeightClass())}>
                           {renderEditableCell(rule, 'default_days', rule.default_days)}
                         </td>
-                        <td className="px-3 py-2 whitespace-nowrap border-r border-gray-200">
+                        <td className={cn("px-3 whitespace-nowrap border-r border-gray-200", getRowHeightClass())}>
                           {renderEditableCell(rule, 'next_action', rule.next_action)}
                         </td>
-                        <td className="px-3 py-2 border-r border-gray-200">
+                        <td className={cn("px-3 border-r border-gray-200", getRowHeightClass())}>
                           {renderEditableCell(rule, 'description', rule.description)}
                         </td>
                       </tr>

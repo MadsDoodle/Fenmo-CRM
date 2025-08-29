@@ -124,9 +124,7 @@ export const DEFAULT_STATUS_SEQUENCE: OutreachStatus[] = [
 export const CHANNEL_FROM_OPTIONS = [
   { value: 'email' as ChannelType, label: 'Email' },
   { value: 'linkedin' as ChannelType, label: 'LinkedIn' },
-  { value: 'phone' as ChannelType, label: 'Phone' },
-  { value: 'sms' as ChannelType, label: 'SMS' },
-  { value: 'whatsapp' as ChannelType, label: 'WhatsApp' }
+  { value: 'phone' as ChannelType, label: 'Phone' }
 ];
 
 // Function to get status options based on channel_from

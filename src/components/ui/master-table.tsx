@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ChevronUp, ChevronDown, Search, Filter, Download, Upload, Plus, Pencil, Check, X, Eye, Database, RefreshCw, ArrowUpDown, Merge, Split, Trash2 } from "lucide-react";
+import { ChevronUp, ChevronDown, Search, Filter, Download, Upload, Plus, Pencil, Check, X, Eye, Database, RefreshCw, ArrowUpDown, Merge, Split, Trash2, Type } from "lucide-react";
 import { toast } from "sonner";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -36,8 +36,19 @@ interface MasterRecord {
   custom_followup_days: number | null;
   outreach_status: OutreachStatus;
   lead_stage: LeadStage;
+  message_template_id: string | null;
   created_at: string;
   updated_at: string;
+}
+
+interface MessageTemplate {
+  id: string;
+  name: string;
+  subject: string;
+  content: string;
+  channel: string;
+  status: string;
+  is_active: boolean;
 }
 
 interface SortConfig {
@@ -52,6 +63,7 @@ interface FilterConfig {
 
 export function MasterTable() {
   const [records, setRecords] = useState<MasterRecord[]>([]);
+  const [messageTemplates, setMessageTemplates] = useState<MessageTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [editingCell, setEditingCell] = useState<{id: string, field: string} | null>(null);
@@ -61,7 +73,86 @@ export function MasterTable() {
   const [showFilters, setShowFilters] = useState(false);
   const [mergedCells, setMergedCells] = useState<Set<string>>(new Set());
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
+  const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>('large');
   const { toast } = useToast();
+
+  const loadMessageTemplates = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('message_templates')
+        .select('*')
+        .eq('is_active', true)
+        .order('name', { ascending: true });
+
+      if (error) throw error;
+      setMessageTemplates(data || []);
+    } catch (error) {
+      console.error('Error loading message templates:', error);
+    }
+  }, []);
+
+  const getFilteredTemplates = (channel: string | null, status: string | null) => {
+    console.log('Filtering templates with:', { channel, status, channelType: typeof channel, statusType: typeof status });
+    console.log('Available templates:', messageTemplates.map(t => ({ id: t.id, name: t.name, channel: t.channel, status: t.status, is_active: t.is_active })));
+    
+    // Normalize the status values - convert underscores to spaces and handle case
+    const normalizeStatus = (statusValue: string | null) => {
+      if (!statusValue) return '';
+      return statusValue.toLowerCase()
+        .replace(/_/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    };
+    
+    const normalizedInputStatus = normalizeStatus(status);
+    
+    const filtered = messageTemplates.filter(template => {
+      const channelMatch = template.channel.toLowerCase() === (channel || '').toLowerCase();
+      const normalizedTemplateStatus = normalizeStatus(template.status);
+      const statusMatch = normalizedTemplateStatus === normalizedInputStatus;
+      const isActive = template.is_active;
+      
+      console.log(`Template "${template.name}": channel=${template.channel} (match: ${channelMatch}), status="${template.status}" -> normalized: "${normalizedTemplateStatus}" vs input: "${normalizedInputStatus}" (match: ${statusMatch}), active=${isActive}`);
+      
+      return isActive && channelMatch && statusMatch;
+    });
+    
+    console.log('Filtered templates:', filtered);
+    return filtered;
+  };
+
+  const handleTemplateSelect = async (recordId: string, templateId: string) => {
+    try {
+      // Handle "none" selection by setting to null
+      const templateIdToUpdate = templateId === "none" ? null : templateId;
+      
+      const { error } = await supabase
+        .from('master')
+        .update({ message_template_id: templateIdToUpdate } as any)
+        .eq('id', recordId);
+
+      if (error) throw error;
+
+      // Update local state
+      setRecords(prev => prev.map(record => 
+        record.id === recordId 
+          ? { ...record, message_template_id: templateIdToUpdate }
+          : record
+      ));
+
+      toast({
+        title: "Success",
+        description: templateIdToUpdate ? "Message template updated successfully" : "Template selection cleared",
+      });
+    } catch (error) {
+      console.error('Error updating template:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update message template",
+        variant: "destructive",
+      });
+    }
+  };
 
   const loadMasterData = useCallback(async () => {
     setLoading(true);
@@ -89,6 +180,7 @@ export function MasterTable() {
           next_action_status,
           outreach_status,
           lead_stage,
+          message_template_id,
           created_at,
           updated_at
         `)
@@ -134,8 +226,23 @@ export function MasterTable() {
 
   useEffect(() => {
     loadMasterData();
-    // Removed real-time subscription to prevent unwanted reloads
-  }, [loadMasterData]);
+    loadMessageTemplates();
+
+    // Set up real-time subscription for message templates
+    const templatesSubscription = supabase
+      .channel('message_templates_changes')
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'message_templates' },
+        () => {
+          loadMessageTemplates();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      templatesSubscription.unsubscribe();
+    };
+  }, [loadMasterData, loadMessageTemplates]);
 
 
 
@@ -674,6 +781,22 @@ export function MasterTable() {
 
 
 
+  const getFontSizeClass = () => {
+    switch (fontSize) {
+      case 'small': return 'text-xs';
+      case 'large': return 'text-base';
+      default: return 'text-sm';
+    }
+  };
+
+  const getRowHeightClass = () => {
+    switch (fontSize) {
+      case 'small': return 'py-2';
+      case 'large': return 'py-5';
+      default: return 'py-3';
+    }
+  };
+
   const renderEditableCell = (record: MasterRecord, field: string, value: any) => {
     const isEditing = editingCell?.id === record.id && editingCell.field === field;
     const cellKey = `${record.id}-${field}`;
@@ -686,7 +809,7 @@ export function MasterTable() {
             <Textarea
               value={editValue}
               onChange={(e) => setEditValue(e.target.value)}
-              className="h-20 text-xs border-2 border-blue-400 focus:border-blue-600 bg-white text-gray-900 placeholder-gray-500"
+              className={cn("h-20 border-2 border-blue-400 focus:border-blue-600 bg-white text-gray-900 placeholder-gray-500", getFontSizeClass())}
               style={{ backgroundColor: 'white', color: '#111827' }}
               onKeyDown={(e) => {
                 if (e.key === 'Escape') handleCancelEdit();
@@ -696,7 +819,7 @@ export function MasterTable() {
             <Input
               value={editValue}
               onChange={(e) => setEditValue(e.target.value)}
-              className="text-xs border-2 border-blue-400 focus:border-blue-600 bg-white text-gray-900 placeholder-gray-500"
+              className={cn("border-2 border-blue-400 focus:border-blue-600 bg-white text-gray-900 placeholder-gray-500", getFontSizeClass())}
               style={{ backgroundColor: 'white', color: '#111827' }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') handleSaveEdit();
@@ -722,7 +845,7 @@ export function MasterTable() {
         )}
         onClick={() => handleCellEdit(record.id, field, value)}
       >
-        <span className="text-xs truncate flex-1 text-gray-900">{value || '-'}</span>
+        <span className={cn("truncate flex-1 text-gray-900", getFontSizeClass())}>{value || '-'}</span>
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           <Pencil className="w-3 h-3 text-gray-500 hover:text-blue-600" />
           <Button
@@ -756,16 +879,16 @@ export function MasterTable() {
   return (
     <Card className="sheets-table">
       {/* Compact toolbar with search, filters, and add button */}
-      <div className="bg-white border-b border-gray-200 px-4 py-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="relative">
+      <div className="bg-white border-b border-gray-200 px-2 sm:px-4 py-3">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0">
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+            <div className="relative flex-1 sm:flex-none">
               <Search className="absolute left-2 top-2.5 h-4 w-4 text-gray-400" />
               <Input
                 placeholder="Search records..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-8 w-64 sheets-search-input"
+                className="pl-8 w-full sm:w-64 sheets-search-input"
               />
             </div>
             <Button 
@@ -780,13 +903,43 @@ export function MasterTable() {
             <Button variant="outline" size="sm" onClick={loadMasterData} className="sheets-button">
               <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
             </Button>
+            <Select value={fontSize} onValueChange={(value) => setFontSize(value as 'small' | 'medium' | 'large')}>
+              <SelectTrigger className="w-32">
+                <SelectValue>
+                  <div className="flex items-center gap-2">
+                    <Type className="w-4 h-4" />
+                    <span className="capitalize">{fontSize}</span>
+                  </div>
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="small">
+                  <div className="flex items-center gap-2">
+                    <Type className="w-3 h-3" />
+                    <span>Small</span>
+                  </div>
+                </SelectItem>
+                <SelectItem value="medium">
+                  <div className="flex items-center gap-2">
+                    <Type className="w-4 h-4" />
+                    <span>Medium</span>
+                  </div>
+                </SelectItem>
+                <SelectItem value="large">
+                  <div className="flex items-center gap-2">
+                    <Type className="w-5 h-5" />
+                    <span>Large</span>
+                  </div>
+                </SelectItem>
+              </SelectContent>
+            </Select>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
             <Button 
               variant="default" 
               size="sm" 
               onClick={handleAddNewRow}
-              className="bg-blue-600 hover:bg-blue-700 text-white"
+              className="bg-blue-600 hover:bg-blue-700 text-white flex-1 sm:flex-none"
             >
               <Plus className="w-4 h-4 mr-2" />
               Add New Row
@@ -796,13 +949,13 @@ export function MasterTable() {
                 variant="destructive" 
                 size="sm" 
                 onClick={handleDeleteRows}
-                className="bg-red-600 hover:bg-red-700 text-white"
+                className="bg-red-600 hover:bg-red-700 text-white flex-1 sm:flex-none"
               >
                 <Trash2 className="w-4 h-4 mr-2" />
                 Delete ({selectedRows.size})
               </Button>
             )}
-            <div className="flex items-center gap-2 text-sm text-gray-600">
+            <div className="flex flex-wrap items-center gap-2 text-sm text-gray-600 w-full sm:w-auto justify-center sm:justify-start">
               <Badge variant="secondary" className="bg-blue-100 text-blue-800">{filteredRecords.length} records</Badge>
               {filters.length > 0 && (
                 <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
@@ -821,34 +974,34 @@ export function MasterTable() {
 
       {/* Filters Panel */}
       {showFilters && (
-        <div className="sheets-filters-panel">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="bg-gray-50 border-t border-gray-200 px-4 py-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Company</label>
+              <label className="block text-xs font-medium text-gray-700 mb-2">Company</label>
               <Input
                 placeholder="Filter by company..."
                 onChange={(e) => handleFilter('company', e.target.value)}
-                className="text-xs border-gray-300 focus:border-blue-500"
+                className="text-xs border-gray-300 focus:border-blue-500 bg-white"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Industry</label>
+              <label className="block text-xs font-medium text-gray-700 mb-2">Industry</label>
               <Input
                 placeholder="Filter by industry..."
                 onChange={(e) => handleFilter('industry', e.target.value)}
-                className="text-xs border-gray-300 focus:border-blue-500"
+                className="text-xs border-gray-300 focus:border-blue-500 bg-white"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Status</label>
-              <Select onValueChange={(value) => handleFilter('outreach_status', value === 'all' ? '' : value)}>
-                <SelectTrigger className="text-xs border-gray-300 focus:border-blue-500">
-                  <SelectValue placeholder="All statuses" />
+              <label className="block text-xs font-medium text-gray-700 mb-2">Channel</label>
+              <Select onValueChange={(value) => handleFilter('channel_from', value === 'all' ? '' : value)}>
+                <SelectTrigger className="text-xs border-gray-300 focus:border-blue-500 bg-white text-gray-500">
+                  <SelectValue placeholder="All channels" className="text-gray-500" />
                 </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All statuses</SelectItem>
-                  {OUTREACH_STATUS_OPTIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
+                <SelectContent className="bg-white">
+                  <SelectItem value="all" className="text-gray-900">All channels</SelectItem>
+                  {CHANNEL_FROM_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value} className="text-gray-900">
                       {option.label}
                     </SelectItem>
                   ))}
@@ -856,12 +1009,20 @@ export function MasterTable() {
               </Select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Location</label>
-              <Input
-                placeholder="Filter by location..."
-                onChange={(e) => handleFilter('location', e.target.value)}
-                className="text-xs border-gray-300 focus:border-blue-500"
-              />
+              <label className="block text-xs font-medium text-gray-700 mb-2">Status</label>
+              <Select onValueChange={(value) => handleFilter('outreach_status', value === 'all' ? '' : value)}>
+                <SelectTrigger className="text-xs border-gray-300 focus:border-blue-500 bg-white text-gray-500">
+                  <SelectValue placeholder="All statuses" className="text-gray-500" />
+                </SelectTrigger>
+                <SelectContent className="bg-white">
+                  <SelectItem value="all" className="text-gray-900">All statuses</SelectItem>
+                  {OUTREACH_STATUS_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value} className="text-gray-900">
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
         </div>
@@ -871,7 +1032,7 @@ export function MasterTable() {
         <div className="overflow-x-auto">
           <div className="inline-block min-w-full align-middle">
             <div className="overflow-hidden border border-gray-200 rounded-lg">
-              <table className="min-w-full divide-y divide-gray-200 bg-white">
+              <table className="min-w-full divide-y divide-gray-200 bg-white table-auto">
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-3 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
@@ -900,10 +1061,10 @@ export function MasterTable() {
                       {renderSortableHeader('linkedin_url', 'LinkedIn')}
                     </th>
                     <th className="px-3 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
-                      {renderSortableHeader('channel', 'Channel')}
+                      {renderSortableHeader('channel', 'Source')}
                     </th>
                     <th className="px-3 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
-                      Channel From
+                      Channel
                     </th>
                     <th className="px-3 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
                       Status
@@ -923,8 +1084,11 @@ export function MasterTable() {
                     <th className="px-3 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
                       {renderSortableHeader('next_action', 'Next Action Date')}
                     </th>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200 min-w-[180px]">
                       {renderSortableHeader('next_action_status', 'Next Action Status')}
+                    </th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200 min-w-[200px]">
+                      Message Templates
                     </th>
                     <th className="px-3 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
                       {renderSortableHeader('industry', 'Industry')}
@@ -959,41 +1123,41 @@ export function MasterTable() {
                         !selectedRows.has(record.id) && index % 2 === 0 && "bg-gray-50",
                         !selectedRows.has(record.id) && index % 2 === 1 && "bg-white"
                       )}>
-                        <td className="px-3 py-2 border-r border-gray-200 text-center">
+                        <td className={cn("px-3 border-r border-gray-200 text-center", getRowHeightClass())}>
                           <Checkbox 
                             checked={selectedRows.has(record.id)}
                             onCheckedChange={() => toggleRowSelection(record.id)}
                             className="data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600"
                           />
                         </td>
-                        <td className="px-3 py-2 border-r border-gray-200 text-gray-900">
+                        <td className={cn("px-3 border-r border-gray-200 text-gray-900", getRowHeightClass())}>
                           {renderEditableCell(record, 'name', record.name)}
                         </td>
-                        <td className="px-3 py-2 border-r border-gray-200 text-gray-900">
+                        <td className={cn("px-3 border-r border-gray-200 text-gray-900", getRowHeightClass())}>
                           {renderEditableCell(record, 'email', record.email)}
                         </td>
-                        <td className="px-3 py-2 border-r border-gray-200 text-gray-900">
+                        <td className={cn("px-3 border-r border-gray-200 text-gray-900", getRowHeightClass())}>
                           {renderEditableCell(record, 'company', record.company)}
                         </td>
-                        <td className="px-3 py-2 border-r border-gray-200 text-gray-900">
+                        <td className={cn("px-3 border-r border-gray-200 text-gray-900", getRowHeightClass())}>
                           {renderEditableCell(record, 'title', record.title)}
                         </td>
-                        <td className="px-3 py-2 border-r border-gray-200 text-gray-900">
+                        <td className={cn("px-3 border-r border-gray-200 text-gray-900", getRowHeightClass())}>
                           {renderEditableCell(record, 'phone', record.phone)}
                         </td>
-                        <td className="px-3 py-2 border-r border-gray-200 text-gray-900">
+                        <td className={cn("px-3 border-r border-gray-200 text-gray-900", getRowHeightClass())}>
                           {renderEditableCell(record, 'linkedin_url', record.linkedin_url)}
                         </td>
-                        <td className="px-3 py-2 border-r border-gray-200 text-gray-900">
-                          <span className="text-xs text-gray-700">{record.channel || '-'}</span>
+                        <td className={cn("px-3 border-r border-gray-200 text-gray-900", getRowHeightClass())}>
+                          <span className={cn("text-gray-700", getFontSizeClass())}>{record.channel || '-'}</span>
                         </td>
-                        <td className="px-3 py-2 border-r border-gray-200 text-gray-900">
+                        <td className={cn("px-3 border-r border-gray-200 text-gray-900", getRowHeightClass())}>
                           <Select
                             value={record.channel_from || "none"}
                             onValueChange={(value) => handleChannelFromChange(record.id, value === 'none' ? null : value as ChannelType)}
                           >
                             <SelectTrigger 
-                              className="w-32 h-9 text-xs border-2 border-gray-300 bg-white text-gray-900 font-medium"
+                              className={cn("w-32 h-9 border-2 border-gray-300 bg-white text-gray-900 font-medium", getFontSizeClass())}
                               style={{ backgroundColor: 'white', color: '#111827' }}
                             >
                               <SelectValue placeholder="Select...">
@@ -1183,7 +1347,7 @@ export function MasterTable() {
                             </div>
                           )}
                         </td>
-                        <td className="px-3 py-2 border-r border-gray-200 text-xs text-gray-700">
+                        <td className={cn("px-3 border-r border-gray-200 text-gray-700", getRowHeightClass())}>
                           {record.last_action ? new Date(record.last_action).toLocaleDateString('en-GB', { 
                             year: '2-digit', 
                             month: '2-digit', 
@@ -1199,10 +1363,36 @@ export function MasterTable() {
                             }) : '-'}
                           </span>
                         </td>
-                        <td className="px-3 py-2 border-r border-gray-200 text-gray-900">
-                          <span className="text-xs text-gray-700 bg-blue-50 px-2 py-1 rounded-md">
+                        <td className="px-3 py-2 border-r border-gray-200 text-gray-900 min-w-[180px]">
+                          <span className={cn("text-gray-700 bg-blue-50 px-2 py-1 rounded-md whitespace-nowrap", getFontSizeClass())}>
                             {record.next_action_status || 'No action defined'}
                           </span>
+                        </td>
+                        <td className="px-3 py-2 border-r border-gray-200 text-gray-900 min-w-[200px]">
+                          <Select
+                            value={record.message_template_id || "none"}
+                            onValueChange={(value) => handleTemplateSelect(record.id, value)}
+                          >
+                            <SelectTrigger className="w-full bg-white border-gray-200 hover:bg-gray-50">
+                              <SelectValue placeholder="Select template">
+                                {record.message_template_id ? 
+                                  messageTemplates.find(t => t.id === record.message_template_id)?.name || "Select template"
+                                  : "Select template"
+                                }
+                              </SelectValue>
+                            </SelectTrigger>
+                            <SelectContent className="bg-white border-gray-200 shadow-lg">
+                              <SelectItem value="none" className="bg-white hover:bg-gray-50 text-gray-900">No template</SelectItem>
+                              {getFilteredTemplates(record.channel_from || record.channel, record.outreach_status).map((template) => (
+                                <SelectItem key={template.id} value={template.id} className="bg-white hover:bg-blue-50 text-gray-900 hover:text-gray-900 focus:bg-blue-100 focus:text-gray-900">
+                                  <div className="flex flex-col">
+                                    <span className="font-medium text-gray-900">{template.name}</span>
+                                    <span className="text-xs text-gray-600 hover:text-gray-700">ID: {template.id.slice(0, 8)}... | {template.subject}</span>
+                                  </div>
+                                </SelectItem>
+              ))}
+                            </SelectContent>
+                          </Select>
                         </td>
                         <td className="px-3 py-2 border-r border-gray-200 text-gray-900">
                           {renderEditableCell(record, 'industry', record.industry)}
