@@ -255,7 +255,7 @@ export function MessageTable() {
               variant="outline" 
               size="sm" 
               onClick={() => setShowFilters(!showFilters)}
-              className="bg-white border-gray-300 hover:bg-gray-50"
+              className="bg-white border-gray-300 hover:bg-black text-black hover:text-white"
             >
               <Filter className="w-4 h-4 mr-2" />
               Filters
@@ -264,10 +264,13 @@ export function MessageTable() {
               variant="outline" 
               size="sm" 
               onClick={loadMessageData}
-              className="bg-white border-gray-300 hover:bg-gray-50"
+              className="bg-white border-gray-300 hover:bg-gray-50 text-black"
             >
-              <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
+              <RefreshCw 
+                className={cn("w-4 h-4", loading && "animate-spin")} 
+              />
             </Button>
+
           </div>
         </div>
         <div className="flex items-center gap-4 text-sm text-gray-700">
