@@ -784,15 +784,15 @@ export function MasterTable() {
   const getFontSizeClass = () => {
     switch (fontSize) {
       case 'small': return 'text-xs';
-      case 'large': return 'text-base';
-      default: return 'text-sm';
+      case 'large': return 'text-sm';
+      default: return 'text-xs';
     }
   };
 
   const getRowHeightClass = () => {
     switch (fontSize) {
       case 'small': return 'py-2';
-      case 'large': return 'py-5';
+      case 'large': return 'py-4';
       default: return 'py-3';
     }
   };
@@ -879,16 +879,16 @@ export function MasterTable() {
   return (
     <Card className="sheets-table">
       {/* Compact toolbar with search, filters, and add button */}
-      <div className="bg-white border-b border-gray-200 px-2 sm:px-4 py-3">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0">
-          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-            <div className="relative flex-1 sm:flex-none">
+      <div className="bg-white border-b border-gray-200 px-4 py-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="relative">
               <Search className="absolute left-2 top-2.5 h-4 w-4 text-gray-400" />
               <Input
                 placeholder="Search records..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-8 w-full sm:w-64 sheets-search-input"
+                className="pl-8 w-64 sheets-search-input"
               />
             </div>
             <Button 
@@ -934,12 +934,12 @@ export function MasterTable() {
               </SelectContent>
             </Select>
           </div>
-          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+          <div className="flex items-center gap-2">
             <Button 
               variant="default" 
               size="sm" 
               onClick={handleAddNewRow}
-              className="bg-blue-600 hover:bg-blue-700 text-white flex-1 sm:flex-none"
+              className="bg-blue-600 hover:bg-blue-700 text-white"
             >
               <Plus className="w-4 h-4 mr-2" />
               Add New Row
@@ -949,13 +949,13 @@ export function MasterTable() {
                 variant="destructive" 
                 size="sm" 
                 onClick={handleDeleteRows}
-                className="bg-red-600 hover:bg-red-700 text-white flex-1 sm:flex-none"
+                className="bg-red-600 hover:bg-red-700 text-white"
               >
                 <Trash2 className="w-4 h-4 mr-2" />
                 Delete ({selectedRows.size})
               </Button>
             )}
-            <div className="flex flex-wrap items-center gap-2 text-sm text-gray-600 w-full sm:w-auto justify-center sm:justify-start">
+            <div className="flex items-center gap-2 text-sm text-gray-600">
               <Badge variant="secondary" className="bg-blue-100 text-blue-800">{filteredRecords.length} records</Badge>
               {filters.length > 0 && (
                 <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
@@ -995,8 +995,8 @@ export function MasterTable() {
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-2">Channel</label>
               <Select onValueChange={(value) => handleFilter('channel_from', value === 'all' ? '' : value)}>
-                <SelectTrigger className="text-xs border-gray-300 focus:border-blue-500 bg-white text-gray-500">
-                  <SelectValue placeholder="All channels" className="text-gray-500" />
+                <SelectTrigger className="text-xs border-gray-300 focus:border-blue-500 bg-white">
+                  <SelectValue placeholder="All channels" className="text-gray-400" />
                 </SelectTrigger>
                 <SelectContent className="bg-white">
                   <SelectItem value="all" className="text-gray-900">All channels</SelectItem>
@@ -1011,8 +1011,8 @@ export function MasterTable() {
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-2">Status</label>
               <Select onValueChange={(value) => handleFilter('outreach_status', value === 'all' ? '' : value)}>
-                <SelectTrigger className="text-xs border-gray-300 focus:border-blue-500 bg-white text-gray-500">
-                  <SelectValue placeholder="All statuses" className="text-gray-500" />
+                <SelectTrigger className="text-xs border-gray-300 focus:border-blue-500 bg-white">
+                  <SelectValue placeholder="All statuses" className="text-gray-400" />
                 </SelectTrigger>
                 <SelectContent className="bg-white">
                   <SelectItem value="all" className="text-gray-900">All statuses</SelectItem>
@@ -1032,7 +1032,7 @@ export function MasterTable() {
         <div className="overflow-x-auto">
           <div className="inline-block min-w-full align-middle">
             <div className="overflow-hidden border border-gray-200 rounded-lg">
-              <table className="min-w-full divide-y divide-gray-200 bg-white table-auto">
+              <table className="min-w-full divide-y divide-gray-200 bg-white">
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-3 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">

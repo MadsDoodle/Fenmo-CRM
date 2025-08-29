@@ -46,7 +46,7 @@ export function MessageTemplatesTable() {
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [channelFilter, setChannelFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>('large');
+  const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>('medium');
   const { toast } = useToast();
 
   const loadMessageTemplates = useCallback(async () => {
@@ -316,15 +316,15 @@ export function MessageTemplatesTable() {
   const getFontSizeClass = () => {
     switch (fontSize) {
       case 'small': return 'text-xs';
-      case 'large': return 'text-base';
-      default: return 'text-sm';
+      case 'large': return 'text-sm';
+      default: return 'text-xs';
     }
   };
 
   const getRowHeightClass = () => {
     switch (fontSize) {
       case 'small': return 'py-2';
-      case 'large': return 'py-5';
+      case 'large': return 'py-4';
       default: return 'py-3';
     }
   };
@@ -437,19 +437,19 @@ export function MessageTemplatesTable() {
   return (
     <Card className="sheets-table">
       <CardHeader className="bg-gray-50 border-b border-gray-200">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="flex items-center justify-between flex-wrap gap-4">
           <CardTitle className="flex items-center gap-2 text-gray-800">
             <Database className="w-5 h-5 text-blue-600" />
             Message Templates
           </CardTitle>
-          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-            <div className="relative flex-1 sm:flex-none">
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="relative">
               <Search className="absolute left-2 top-2.5 h-4 w-4 text-gray-400" />
               <Input
                 placeholder="Search templates..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-8 w-full sm:w-64 sheets-search-input"
+                className="pl-8 w-64 sheets-search-input"
               />
             </div>
             <Select value={channelFilter} onValueChange={setChannelFilter}>
@@ -479,15 +479,6 @@ export function MessageTemplatesTable() {
               </SelectContent>
             </Select>
             <div className="flex items-center gap-2">
-              <Button 
-                variant="outline" 
-                size="sm" 
-                onClick={() => setShowFilters(!showFilters)}
-                className="sheets-button"
-              >
-                <Filter className="w-4 h-4 mr-2" />
-                Filters
-              </Button>
               <Button variant="outline" size="sm" onClick={loadMessageTemplates} className="sheets-button">
                 <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
               </Button>
