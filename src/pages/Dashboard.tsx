@@ -220,26 +220,18 @@ export default function Dashboard() {
             <Button 
               variant="outline" 
               className="w-full justify-start border-border/40 hover:bg-accent/50 hover:border-primary/40 transition-all duration-300"
-              onClick={() => navigate('/contacts')}
+              onClick={() => navigate('/messaging')}
             >
               <Users className="w-4 h-4 mr-2" />
-              Add New Contact
-            </Button>
-            <Button 
-              variant="outline" 
-              className="w-full justify-start border-border/40 hover:bg-accent/50 hover:border-primary/40 transition-all duration-300"
-              onClick={() => navigate('/tasks')}
-            >
-              <FileText className="w-4 h-4 mr-2" />
-              Create Task
+              Open Configurations
             </Button>
             <Button 
               variant="outline" 
               className="w-full justify-start border-border/40 hover:bg-accent/50 hover:border-primary/40 transition-all duration-300"
               onClick={() => navigate('/messaging')}
             >
-              <Send className="w-4 h-4 mr-2" />
-              Send Message
+              <FileText className="w-4 h-4 mr-2" />
+              Create Follow Up Rules
             </Button>
           </CardContent>
         </Card>
