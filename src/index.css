@@ -231,7 +231,7 @@ All colors MUST be HSL.
   }
   
   .sheets-search-input {
-    @apply bg-white border-gray-300 focus:border-blue-500 focus:ring-blue-500;
+    @apply bg-white border-gray-300 focus:border-blue-500 focus:ring-blue-500 text-gray-700 placeholder:text-gray-500;
   }
   
   .sheets-button {
@@ -508,5 +508,113 @@ All colors MUST be HSL.
       transform: scale(1.05);
     }
   }
+
+/* Fix dropdown placeholder text visibility - silver color like Industry/Company */
+[data-radix-select-trigger] {
+  color: #9ca3af !important; /* gray-400 - silver color */
+}
+
+[data-radix-select-value] {
+  color: #9ca3af !important; /* gray-400 - silver color for placeholder */
+}
+
+[data-radix-select-value][data-state="open"] {
+  color: #374151 !important; /* gray-700 - darker when opened */
+}
+
+/* Default table font size to large */
+.sheets-table table {
+  font-size: 0.875rem !important; /* text-sm - large font size */
+}
+
+
+.sheets-table th {
+  font-size: 0.875rem !important; /* Large headers */
+}
+
+.sheets-table td {
+  font-size: 0.875rem !important; /* Large cell content */
+}
+
+/* Responsive design improvements */
+@media (max-width: 640px) {
+  /* Mobile styles */
+  .sheets-table {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  .sheets-table table {
+    min-width: 800px; /* Ensure table doesn't get too cramped */
+    font-size: 0.75rem !important;
+  }
+  
+  .sheets-table th,
+  .sheets-table td {
+    padding: 0.5rem 0.25rem !important;
+    white-space: nowrap;
+  }
+  
+  /* Stack filter grid on mobile */
+  .grid-cols-4,
+  .lg\\:grid-cols-4 {
+    grid-template-columns: repeat(1, minmax(0, 1fr)) !important;
+    gap: 0.75rem !important;
+  }
+  
+  .grid-cols-2,
+  .md\\:grid-cols-2 {
+    grid-template-columns: repeat(1, minmax(0, 1fr)) !important;
+  }
+  
+  /* Mobile toolbar adjustments */
+  .flex-wrap {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 0.5rem !important;
+  }
+  
+  /* Mobile button sizing */
+  .sheets-button {
+    width: 100% !important;
+    justify-content: center !important;
+  }
+}
+
+@media (min-width: 641px) and (max-width: 1024px) {
+  /* Tablet styles */
+  .grid-cols-4,
+  .lg\\:grid-cols-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+  
+  .sheets-table table {
+    font-size: 0.8125rem !important; /* Slightly smaller on tablet */
+  }
+}
+
+@media (min-width: 1025px) {
+  /* Desktop styles */
+  .sheets-table table {
+    font-size: 0.875rem !important; /* Full large size on desktop */
+  }
+}
+
+/* Input placeholder styling */
+input::placeholder {
+  color: #9ca3af !important; /* gray-400 - silver color */
+}
+
+/* Card responsive improvements */
+.sheets-table .card {
+  margin: 0.5rem !important;
+}
+
+@media (max-width: 640px) {
+  .sheets-table .card {
+    margin: 0.25rem !important;
+    border-radius: 0.375rem !important;
+  }
+}
   
 }

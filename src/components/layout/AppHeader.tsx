@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Search, Bell, User, Settings, Moon, Sun, Loader2, ArrowRight } from "lucide-react";
+import { Search, Bell, User, Settings, Moon, Sun, Loader2, ArrowRight, Menu } from "lucide-react";
 import { NotificationBell } from "@/components/ui/notification-bell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -88,11 +88,28 @@ export function AppHeader() {
     return () => { cancelled = true; clearTimeout(t); };
   }, [searchQuery]);
 
+  const toggleMobileSidebar = () => {
+    const overlay = document.getElementById('mobile-sidebar-overlay');
+    if (overlay) {
+      overlay.style.display = overlay.style.display === 'none' ? 'block' : 'none';
+    }
+  };
+
   return (
     <header className="h-16 border-b border-border/40 bg-card/50 backdrop-blur-sm sticky top-0 z-50">
       <div className="flex items-center justify-between h-full px-6">
+        {/* Mobile Menu Button */}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={toggleMobileSidebar}
+          className="md:hidden w-9 h-9 p-0 hover:bg-accent/80"
+        >
+          <Menu className="w-4 h-4" />
+        </Button>
+        
         {/* Search Bar */}
-        <div className="flex items-center gap-4 flex-1 max-w-md" ref={searchContainerRef}>
+        <div className="flex items-center gap-4 flex-1 max-w-md ml-4 md:ml-0" ref={searchContainerRef}>
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
             <Input

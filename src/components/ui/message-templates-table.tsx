@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ChevronUp, ChevronDown, Search, Filter, RefreshCw, ArrowUpDown, Pencil, Check, X, Database, Trash2, Type } from "lucide-react";
+import { ChevronUp, ChevronDown, Search, RefreshCw, ArrowUpDown, Pencil, Check, X, Database, Trash2, Type } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -29,10 +29,6 @@ interface SortConfig {
   direction: 'asc' | 'desc';
 }
 
-interface FilterConfig {
-  key: keyof MessageTemplate;
-  value: string;
-}
 
 export function MessageTemplatesTable() {
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
@@ -41,12 +37,10 @@ export function MessageTemplatesTable() {
   const [editingCell, setEditingCell] = useState<{id: string, field: string} | null>(null);
   const [editValue, setEditValue] = useState("");
   const [sortConfig, setSortConfig] = useState<SortConfig | null>(null);
-  const [filters, setFilters] = useState<FilterConfig[]>([]);
-  const [showFilters, setShowFilters] = useState(false);
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [channelFilter, setChannelFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>('medium');
+  const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>('large');
   const { toast } = useToast();
 
   const loadMessageTemplates = useCallback(async () => {
@@ -165,19 +159,6 @@ export function MessageTemplatesTable() {
     });
   };
 
-  const handleFilter = (key: keyof MessageTemplate, value: string) => {
-    setFilters(current => {
-      const existing = current.find(f => f.key === key);
-      if (existing) {
-        if (value === '') {
-          return current.filter(f => f.key !== key);
-        }
-        return current.map(f => f.key === key ? { ...f, value } : f);
-      }
-      if (value === '') return current;
-      return [...current, { key, value }];
-    });
-  };
 
   const toggleRowSelection = (templateId: string) => {
     setSelectedRows(current => {
@@ -208,13 +189,6 @@ export function MessageTemplatesTable() {
       filtered = filtered.filter(template => template.status === statusFilter);
     }
 
-    // Apply other filters
-    filters.forEach(filter => {
-      filtered = filtered.filter(template => {
-        const value = template[filter.key];
-        return value?.toString().toLowerCase().includes(filter.value.toLowerCase());
-      });
-    });
 
     // Apply sorting
     if (sortConfig) {
@@ -316,15 +290,15 @@ export function MessageTemplatesTable() {
   const getFontSizeClass = () => {
     switch (fontSize) {
       case 'small': return 'text-xs';
-      case 'large': return 'text-sm';
-      default: return 'text-xs';
+      case 'large': return 'text-base';
+      default: return 'text-sm';
     }
   };
 
   const getRowHeightClass = () => {
     switch (fontSize) {
       case 'small': return 'py-2';
-      case 'large': return 'py-4';
+      case 'large': return 'py-5';
       default: return 'py-3';
     }
   };
@@ -392,7 +366,7 @@ export function MessageTemplatesTable() {
 
     return (
       <div 
-        className="flex items-center gap-1 group sheets-cell-editable"
+        className="flex items-center gap-1 group cursor-pointer hover:bg-gray-100 p-1 rounded"
         onClick={() => handleCellEdit(template.id, field, value)}
       >
         <span className={cn("truncate flex-1 text-gray-900", getFontSizeClass())}>
@@ -437,13 +411,13 @@ export function MessageTemplatesTable() {
   return (
     <Card className="sheets-table">
       <CardHeader className="bg-gray-50 border-b border-gray-200">
-        <div className="flex items-center justify-between flex-wrap gap-4">
+        <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2 text-gray-800">
             <Database className="w-5 h-5 text-blue-600" />
             Message Templates
           </CardTitle>
-          <div className="flex items-center gap-2 flex-wrap">
-            <div className="relative">
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+            <div className="relative flex-1 sm:flex-none">
               <Search className="absolute left-2 top-2.5 h-4 w-4 text-gray-400" />
               <Input
                 placeholder="Search templates..."
@@ -478,56 +452,13 @@ export function MessageTemplatesTable() {
                 ))}
               </SelectContent>
             </Select>
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={loadMessageTemplates} className="sheets-button">
-                <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
-              </Button>
-              <Select value={fontSize} onValueChange={(value) => setFontSize(value as 'small' | 'medium' | 'large')}>
-                <SelectTrigger className="w-32">
-                  <SelectValue>
-                    <div className="flex items-center gap-2">
-                      <Type className="w-4 h-4" />
-                      <span className="capitalize">{fontSize}</span>
-                    </div>
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="small">
-                    <div className="flex items-center gap-2">
-                      <Type className="w-3 h-3" />
-                      <span>Small</span>
-                    </div>
-                  </SelectItem>
-                  <SelectItem value="medium">
-                    <div className="flex items-center gap-2">
-                      <Type className="w-4 h-4" />
-                      <span>Medium</span>
-                    </div>
-                  </SelectItem>
-                  <SelectItem value="large">
-                    <div className="flex items-center gap-2">
-                      <Type className="w-5 h-5" />
-                      <span>Large</span>
-                    </div>
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-              {selectedRows.size > 0 && (
-                <Button 
-                  variant="destructive" 
-                  size="sm" 
-                  onClick={handleDeleteRows}
-                  className="bg-red-600 hover:bg-red-700 text-white whitespace-nowrap"
-                >
-                  <Trash2 className="w-4 h-4 mr-2" />
-                  Delete ({selectedRows.size})
-                </Button>
-              )}
-            </div>
+            <Button variant="outline" size="sm" onClick={loadMessageTemplates} className="sheets-button">
+              <RefreshCw className={cn("w-4 h-4 text-purple-600", loading && "animate-spin")} />
+            </Button>
           </div>
         </div>
-        <div className="flex items-center gap-4 text-sm text-gray-600">
-          <Badge variant="secondary" className="bg-blue-100 text-blue-800">{filteredTemplates.length} templates</Badge>
+        <div className="flex items-center gap-4 text-sm text-purple-700">
+          <Badge variant="secondary" className="bg-purple-100 text-purple-800">{filteredTemplates.length} templates</Badge>
           <span>Real-time updates enabled</span>
           {(channelFilter !== "all" || statusFilter !== "all") && (
             <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
@@ -542,37 +473,6 @@ export function MessageTemplatesTable() {
         </div>
       </CardHeader>
 
-      {/* Filters Panel */}
-      {showFilters && (
-        <div className="sheets-filters-panel">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Name</label>
-              <Input
-                placeholder="Filter by name..."
-                onChange={(e) => handleFilter('name', e.target.value)}
-                className="text-xs border-gray-300 focus:border-blue-500"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Subject</label>
-              <Input
-                placeholder="Filter by subject..."
-                onChange={(e) => handleFilter('subject', e.target.value)}
-                className="text-xs border-gray-300 focus:border-blue-500"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Content</label>
-              <Input
-                placeholder="Filter by content..."
-                onChange={(e) => handleFilter('content', e.target.value)}
-                className="text-xs border-gray-300 focus:border-blue-500"
-              />
-            </div>
-          </div>
-        </div>
-      )}
 
       <CardContent className="p-0">
         <div className="overflow-x-auto">
@@ -627,7 +527,7 @@ export function MessageTemplatesTable() {
                       <td colSpan={9} className="px-3 py-8 text-center text-gray-500">
                         {templates.length === 0 
                           ? "No message templates found."
-                          : `No templates match current filters. Total templates: ${templates.length}`
+                          : `No templates match current search. Total templates: ${templates.length}`
                         }
                       </td>
                     </tr>

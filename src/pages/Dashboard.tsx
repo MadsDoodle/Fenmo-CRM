@@ -220,18 +220,18 @@ export default function Dashboard() {
             <Button 
               variant="outline" 
               className="w-full justify-start border-border/40 hover:bg-accent/50 hover:border-primary/40 transition-all duration-300"
-              onClick={() => navigate('/messaging')}
+              onClick={() => navigate('/messaging?view=followup-rules')}
             >
-              <Users className="w-4 h-4 mr-2" />
-              Open Configurations
+              <Target className="w-4 h-4 mr-2" />
+              Follow up Rules Table
             </Button>
             <Button 
               variant="outline" 
               className="w-full justify-start border-border/40 hover:bg-accent/50 hover:border-primary/40 transition-all duration-300"
-              onClick={() => navigate('/messaging')}
+              onClick={() => navigate('/messaging?action=new-template')}
             >
-              <FileText className="w-4 h-4 mr-2" />
-              Create Follow Up Rules
+              <Plus className="w-4 h-4 mr-2" />
+              Create Message Template
             </Button>
           </CardContent>
         </Card>

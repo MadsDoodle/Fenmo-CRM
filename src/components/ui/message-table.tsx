@@ -6,7 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, Filter, RefreshCw, ArrowUpDown, Database, Mail, Linkedin, Phone, MessageCircle, Users, MessageSquare } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { Search, Filter, RefreshCw, ArrowUpDown, Database, Mail, Linkedin, Phone, MessageCircle, Users, MessageSquare, Plus, Save, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -43,6 +44,17 @@ export function MessageTable() {
   const [filters, setFilters] = useState<FilterConfig[]>([]);
   const [showFilters, setShowFilters] = useState(false);
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
+  const [editingCell, setEditingCell] = useState<{recordId: string, field: keyof MessageRecord} | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newMessage, setNewMessage] = useState({
+    contact_id: '',
+    channel: 'email',
+    subject: '',
+    content: '',
+    status: 'draft'
+  });
+  const [contacts, setContacts] = useState<{id: string, name: string}[]>([]);
   const { toast } = useToast();
 
   const loadMessageData = useCallback(async () => {
@@ -97,8 +109,23 @@ export function MessageTable() {
     }
   }, [toast]);
 
+  const loadContacts = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('master')
+        .select('id, name')
+        .order('name');
+      
+      if (error) throw error;
+      setContacts(data || []);
+    } catch (error) {
+      console.error('Error loading contacts:', error);
+    }
+  }, []);
+
   useEffect(() => {
     loadMessageData();
+    loadContacts();
 
     // Subscribe to real-time updates
     const channel = supabase
@@ -112,7 +139,7 @@ export function MessageTable() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [loadMessageData]);
+  }, [loadMessageData, loadContacts]);
 
   const handleSort = (key: keyof MessageRecord) => {
     setSortConfig(current => {
@@ -152,14 +179,6 @@ export function MessageTable() {
     });
   };
 
-  const selectAllRows = () => {
-    if (selectedRows.size === filteredRecords.length) {
-      setSelectedRows(new Set());
-    } else {
-      setSelectedRows(new Set(filteredRecords.map(r => r.id)));
-    }
-  };
-
   const getFilteredAndSortedRecords = () => {
     let filtered = records.filter(record =>
       Object.values(record).some(value =>
@@ -194,6 +213,96 @@ export function MessageTable() {
   };
 
   const filteredRecords = getFilteredAndSortedRecords();
+
+  const selectAllRows = () => {
+    if (selectedRows.size === filteredRecords.length) {
+      setSelectedRows(new Set());
+    } else {
+      setSelectedRows(new Set(filteredRecords.map(r => r.id)));
+    }
+  };
+
+  const handleCellEdit = (recordId: string, field: keyof MessageRecord) => {
+    const record = records.find(r => r.id === recordId);
+    if (record) {
+      setEditingCell({ recordId, field });
+      setEditValue(record[field]?.toString() || '');
+    }
+  };
+
+  const handleCellSave = async () => {
+    if (!editingCell) return;
+    
+    try {
+      const { error } = await supabase
+        .from('messages')
+        .update({ [editingCell.field]: editValue })
+        .eq('id', editingCell.recordId);
+      
+      if (error) throw error;
+      
+      toast({
+        title: "Success",
+        description: "Message updated successfully",
+      });
+      
+      setEditingCell(null);
+      setEditValue('');
+      loadMessageData();
+    } catch (error) {
+      console.error('Error updating message:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update message",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleCellCancel = () => {
+    setEditingCell(null);
+    setEditValue('');
+  };
+
+  const handleAddMessage = async () => {
+    try {
+      const { error } = await supabase
+        .from('messages')
+        .insert([{
+          contact_id: newMessage.contact_id,
+          channel: newMessage.channel,
+          subject: newMessage.subject,
+          content: newMessage.content,
+          status: newMessage.status,
+          created_at: new Date().toISOString()
+        }]);
+      
+      if (error) throw error;
+      
+      toast({
+        title: "Success",
+        description: "Message added successfully",
+      });
+      
+      setShowAddForm(false);
+      setNewMessage({
+        contact_id: '',
+        channel: 'email',
+        subject: '',
+        content: '',
+        status: 'draft'
+      });
+      loadMessageData();
+    } catch (error) {
+      console.error('Error adding message:', error);
+      toast({
+        title: "Error",
+        description: "Failed to add message",
+        variant: "destructive"
+      });
+    }
+  };
+
 
   const renderSortableHeader = (key: keyof MessageRecord, label: string) => (
     <div className="flex items-center gap-1 sheets-header-sortable cursor-pointer" onClick={() => handleSort(key)}>
@@ -248,29 +357,34 @@ export function MessageTable() {
                 placeholder="Search messages..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-8 w-64 bg-white border-gray-300 placeholder:text-gray-500"
+                className="pl-8 w-64 sheets-search-input"
               />
             </div>
             <Button 
               variant="outline" 
               size="sm" 
               onClick={() => setShowFilters(!showFilters)}
-              className="bg-white border-gray-300 hover:bg-black text-black hover:text-white"
+              className="bg-white border-gray-300 hover:bg-gray-50 text-gray-700"
             >
-              <Filter className="w-4 h-4 mr-2" />
+              <Filter className="w-4 h-4 mr-2 text-gray-700" />
               Filters
             </Button>
             <Button 
               variant="outline" 
               size="sm" 
               onClick={loadMessageData}
-              className="bg-white border-gray-300 hover:bg-gray-50 text-black"
+              className="bg-white border-gray-300 hover:bg-gray-50"
             >
-              <RefreshCw 
-                className={cn("w-4 h-4", loading && "animate-spin")} 
-              />
+              <RefreshCw className={cn("w-4 h-4 text-gray-700", loading && "animate-spin")} />
             </Button>
-
+            <Button 
+              size="sm" 
+              onClick={() => setShowAddForm(true)}
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Add Message
+            </Button>
           </div>
         </div>
         <div className="flex items-center gap-4 text-sm text-gray-700">
@@ -298,7 +412,7 @@ export function MessageTable() {
               <Input
                 placeholder="Filter by channel..."
                 onChange={(e) => handleFilter('channel', e.target.value)}
-                className="text-xs bg-white border-gray-300 placeholder:text-gray-500"
+                className="text-xs bg-white border-gray-300 placeholder:text-gray-500 text-gray-700"
               />
             </div>
             <div>
@@ -306,7 +420,7 @@ export function MessageTable() {
               <Input
                 placeholder="Filter by status..."
                 onChange={(e) => handleFilter('status', e.target.value)}
-                className="text-xs bg-white border-gray-300 placeholder:text-gray-500"
+                className="text-xs bg-white border-gray-300 placeholder:text-gray-500 text-gray-700"
               />
             </div>
             <div>
@@ -314,7 +428,7 @@ export function MessageTable() {
               <Input
                 placeholder="Filter by contact..."
                 onChange={(e) => handleFilter('contact_name', e.target.value)}
-                className="text-xs bg-white border-gray-300 placeholder:text-gray-500"
+                className="text-xs bg-white border-gray-300 placeholder:text-gray-500 text-gray-700"
               />
             </div>
             <div>
@@ -322,7 +436,7 @@ export function MessageTable() {
               <Input
                 placeholder="Filter by subject..."
                 onChange={(e) => handleFilter('subject', e.target.value)}
-                className="text-xs bg-white border-gray-300 placeholder:text-gray-500"
+                className="text-xs bg-white border-gray-300 placeholder:text-gray-500 text-gray-700"
               />
             </div>
           </div>
@@ -385,7 +499,7 @@ export function MessageTable() {
                     </tr>
                   ) : (
                     filteredRecords.map((record, index) => (
-                      <tr className={cn(
+                      <tr key={record.id} className={cn(
                         "hover:bg-gray-50 transition-colors",
                         selectedRows.has(record.id) && "bg-blue-50",
                         !selectedRows.has(record.id) && index % 2 === 0 && "bg-white",
@@ -402,18 +516,91 @@ export function MessageTable() {
                           <span className="text-xs font-medium">{record.contact_name}</span>
                         </td>
                         <td className="px-3 py-2 border-r border-gray-200 text-gray-900">
-                          <div className="flex items-center gap-2">
-                            {getChannelIcon(record.channel)}
-                            <span className="text-xs capitalize">{record.channel}</span>
-                          </div>
+                          {editingCell?.recordId === record.id && editingCell?.field === 'channel' ? (
+                            <div className="flex items-center gap-1">
+                              <Select value={editValue} onValueChange={setEditValue}>
+                                <SelectTrigger className="h-6 text-xs">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="email">Email</SelectItem>
+                                  <SelectItem value="linkedin">LinkedIn</SelectItem>
+                                  <SelectItem value="phone">Phone</SelectItem>
+                                  <SelectItem value="sms">SMS</SelectItem>
+                                  <SelectItem value="whatsapp">WhatsApp</SelectItem>
+                                  <SelectItem value="in_person">In Person</SelectItem>
+                                  <SelectItem value="other">Other</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <Button size="sm" variant="ghost" onClick={handleCellSave} className="h-6 w-6 p-0">
+                                <Save className="w-3 h-3" />
+                              </Button>
+                              <Button size="sm" variant="ghost" onClick={handleCellCancel} className="h-6 w-6 p-0">
+                                <X className="w-3 h-3" />
+                              </Button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2 cursor-pointer hover:bg-gray-100 p-1 rounded" onClick={() => handleCellEdit(record.id, 'channel')}>
+                              {getChannelIcon(record.channel)}
+                              <span className="text-xs capitalize">{record.channel}</span>
+                            </div>
+                          )}
                         </td>
                         <td className="px-3 py-2 border-r border-gray-200 text-gray-900">
-                          <span className="text-xs truncate max-w-xs block">{record.subject || '-'}</span>
+                          {editingCell?.recordId === record.id && editingCell?.field === 'subject' ? (
+                            <div className="flex items-center gap-1">
+                              <Input 
+                                value={editValue} 
+                                onChange={(e) => setEditValue(e.target.value)}
+                                className="h-6 text-xs"
+                                onKeyDown={(e) => e.key === 'Enter' && handleCellSave()}
+                              />
+                              <Button size="sm" variant="ghost" onClick={handleCellSave} className="h-6 w-6 p-0">
+                                <Save className="w-3 h-3" />
+                              </Button>
+                              <Button size="sm" variant="ghost" onClick={handleCellCancel} className="h-6 w-6 p-0">
+                                <X className="w-3 h-3" />
+                              </Button>
+                            </div>
+                          ) : (
+                            <span 
+                              className="text-xs truncate max-w-xs block cursor-pointer hover:bg-gray-100 p-1 rounded" 
+                              onClick={() => handleCellEdit(record.id, 'subject')}
+                            >
+                              {record.subject || '-'}
+                            </span>
+                          )}
                         </td>
                         <td className="px-3 py-2 border-r border-gray-200 text-gray-900">
-                          <Badge className={getStatusColor(record.status)}>
-                            {record.status}
-                          </Badge>
+                          {editingCell?.recordId === record.id && editingCell?.field === 'status' ? (
+                            <div className="flex items-center gap-1">
+                              <Select value={editValue} onValueChange={setEditValue}>
+                                <SelectTrigger className="h-6 text-xs">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="draft">Draft</SelectItem>
+                                  <SelectItem value="sent">Sent</SelectItem>
+                                  <SelectItem value="delivered">Delivered</SelectItem>
+                                  <SelectItem value="opened">Opened</SelectItem>
+                                  <SelectItem value="replied">Replied</SelectItem>
+                                  <SelectItem value="failed">Failed</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <Button size="sm" variant="ghost" onClick={handleCellSave} className="h-6 w-6 p-0">
+                                <Save className="w-3 h-3" />
+                              </Button>
+                              <Button size="sm" variant="ghost" onClick={handleCellCancel} className="h-6 w-6 p-0">
+                                <X className="w-3 h-3" />
+                              </Button>
+                            </div>
+                          ) : (
+                            <div className="cursor-pointer hover:bg-gray-100 p-1 rounded" onClick={() => handleCellEdit(record.id, 'status')}>
+                              <Badge className={getStatusColor(record.status)}>
+                                {record.status}
+                              </Badge>
+                            </div>
+                          )}
                         </td>
                         <td className="px-3 py-2 border-r border-gray-200 text-gray-900">
                           <span className="text-xs">
@@ -424,9 +611,31 @@ export function MessageTable() {
                           <span className="text-xs text-gray-600">{record.template_id || '-'}</span>
                         </td>
                         <td className="px-3 py-2 border-r border-gray-200 text-gray-900">
-                          <span className="text-xs text-gray-600 line-clamp-2 max-w-xs">
-                            {record.content.substring(0, 100)}...
-                          </span>
+                          {editingCell?.recordId === record.id && editingCell?.field === 'content' ? (
+                            <div className="flex items-center gap-1">
+                              <Textarea 
+                                value={editValue} 
+                                onChange={(e) => setEditValue(e.target.value)}
+                                className="h-16 text-xs resize-none"
+                                rows={3}
+                              />
+                              <div className="flex flex-col gap-1">
+                                <Button size="sm" variant="ghost" onClick={handleCellSave} className="h-6 w-6 p-0">
+                                  <Save className="w-3 h-3" />
+                                </Button>
+                                <Button size="sm" variant="ghost" onClick={handleCellCancel} className="h-6 w-6 p-0">
+                                  <X className="w-3 h-3" />
+                                </Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <span 
+                              className="text-xs text-gray-600 line-clamp-2 max-w-xs cursor-pointer hover:bg-gray-100 p-1 rounded block"
+                              onClick={() => handleCellEdit(record.id, 'content')}
+                            >
+                              {record.content.substring(0, 100)}...
+                            </span>
+                          )}
                         </td>
                       </tr>
                     ))
@@ -437,6 +646,91 @@ export function MessageTable() {
           </div>
         </div>
       </CardContent>
+      
+      {/* Add Message Form */}
+      {showAddForm && (
+        <div className="bg-gray-50 border-t border-gray-200 p-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Contact</label>
+              <Select value={newMessage.contact_id} onValueChange={(value) => setNewMessage({...newMessage, contact_id: value})}>
+                <SelectTrigger className="bg-white border-gray-300 text-gray-700">
+                  <SelectValue placeholder="Select contact..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {contacts.map(contact => (
+                    <SelectItem key={contact.id} value={contact.id}>
+                      {contact.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Channel</label>
+              <Select value={newMessage.channel} onValueChange={(value) => setNewMessage({...newMessage, channel: value})}>
+                <SelectTrigger className="bg-white border-gray-300 text-gray-700">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="email">Email</SelectItem>
+                  <SelectItem value="linkedin">LinkedIn</SelectItem>
+                  <SelectItem value="phone">Phone</SelectItem>
+                  <SelectItem value="sms">SMS</SelectItem>
+                  <SelectItem value="whatsapp">WhatsApp</SelectItem>
+                  <SelectItem value="in_person">In Person</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Status</label>
+              <Select value={newMessage.status} onValueChange={(value) => setNewMessage({...newMessage, status: value})}>
+                <SelectTrigger className="bg-white border-gray-300 text-gray-700">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="draft">Draft</SelectItem>
+                  <SelectItem value="sent">Sent</SelectItem>
+                  <SelectItem value="delivered">Delivered</SelectItem>
+                  <SelectItem value="opened">Opened</SelectItem>
+                  <SelectItem value="replied">Replied</SelectItem>
+                  <SelectItem value="failed">Failed</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="md:col-span-2 lg:col-span-3">
+              <label className="block text-xs font-medium text-gray-700 mb-1">Subject</label>
+              <Input
+                value={newMessage.subject}
+                onChange={(e) => setNewMessage({...newMessage, subject: e.target.value})}
+                placeholder="Message subject..."
+                className="bg-white border-gray-300 text-gray-700 placeholder:text-gray-500"
+              />
+            </div>
+            <div className="md:col-span-2 lg:col-span-3">
+              <label className="block text-xs font-medium text-gray-700 mb-1">Content</label>
+              <Textarea
+                value={newMessage.content}
+                onChange={(e) => setNewMessage({...newMessage, content: e.target.value})}
+                placeholder="Message content..."
+                rows={4}
+                className="bg-white border-gray-300 text-gray-700 placeholder:text-gray-500"
+              />
+            </div>
+          </div>
+          <div className="flex items-center gap-2 mt-4">
+            <Button onClick={handleAddMessage} className="bg-blue-600 hover:bg-blue-700 text-white">
+              <Save className="w-4 h-4 mr-2" />
+              Save Message
+            </Button>
+            <Button variant="outline" onClick={() => setShowAddForm(false)} className="bg-white border-gray-300 hover:bg-gray-50">
+              <X className="w-4 h-4 mr-2" />
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
       
       {/* Status Bar */}
         <div className="bg-gray-50 border-t border-gray-200 px-4 py-2 text-xs text-gray-700 flex items-center justify-between">

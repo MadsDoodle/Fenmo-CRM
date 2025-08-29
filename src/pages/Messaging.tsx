@@ -3,6 +3,7 @@ import { Plus, Database, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { useSearchParams } from "react-router-dom";
 import { TemplateForm } from "@/components/ui/template-form";
 import { MessageTable } from "@/components/ui/message-table";
 import { FollowupRulesTable } from "@/components/ui/followup-rules-table";
@@ -24,12 +25,25 @@ function Messaging() {
   const [editingTemplate, setEditingTemplate] = useState<Template | null>(null);
   const [showMessageTable, setShowMessageTable] = useState(false);
   const [showFollowupRules, setShowFollowupRules] = useState(false);
+  const [searchParams] = useSearchParams();
   const { toast } = useToast();
 
   useEffect(() => {
     loadData();
     setupRealtimeSubscriptions();
-  }, []);
+    
+    // Handle URL parameters for Quick Actions navigation
+    const view = searchParams.get('view');
+    const action = searchParams.get('action');
+    
+    if (view === 'followup-rules') {
+      setShowFollowupRules(true);
+      setShowMessageTable(false);
+    } else if (action === 'new-template') {
+      setShowTemplateForm(true);
+      setEditingTemplate(null);
+    }
+  }, [searchParams]);
 
   const setupRealtimeSubscriptions = () => {
     // Minimal setup for template form functionality

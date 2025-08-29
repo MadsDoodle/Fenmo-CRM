@@ -64,6 +64,7 @@ export function AppSidebar() {
     <Sidebar 
       className={cn(
         "border-r border-border/40 bg-gradient-to-b from-card to-muted/30",
+        "md:relative md:translate-x-0", // Ensure sidebar is visible on desktop
         isCollapsed ? "w-16" : "w-64"
       )}
       collapsible="icon"

@@ -1,6 +1,4 @@
-import { SidebarProvider } from "@/components/ui/sidebar";
-import { AppSidebar } from "./AppSidebar";
-import { AppHeader } from "./AppHeader";
+import { TopNavigation } from "./TopNavigation";
 import { ThemeProvider } from "next-themes";
 
 interface AppLayoutProps {
@@ -10,21 +8,16 @@ interface AppLayoutProps {
 export function AppLayout({ children }: AppLayoutProps) {
   return (
     <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
-      <SidebarProvider>
-        <div className="min-h-screen w-full bg-background">
-          <div className="flex min-h-screen w-full">
-            <AppSidebar />
-            <div className="flex-1 flex flex-col overflow-hidden">
-              <AppHeader />
-              <main className="flex-1 overflow-auto p-6 bg-gradient-background relative">
-                <div className="relative z-10">
-                  {children}
-                </div>
-              </main>
+      <div className="min-h-screen bg-background">
+        <TopNavigation />
+        <main className="pt-16 min-h-screen bg-gradient-background relative">
+          <div className="container mx-auto px-4 py-6">
+            <div className="relative z-10">
+              {children}
             </div>
           </div>
-        </div>
-      </SidebarProvider>
+        </main>
+      </div>
     </ThemeProvider>
   );
 }
