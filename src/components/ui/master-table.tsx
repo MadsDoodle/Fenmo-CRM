@@ -74,6 +74,9 @@ export function MasterTable() {
   const [filters, setFilters] = useState<FilterConfig[]>([]);
   const [selectedChannelFilter, setSelectedChannelFilter] = useState<ChannelType | ''>('');
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<OutreachStatus | ''>('');
+  const [selectedNextActionFilter, setSelectedNextActionFilter] = useState<
+    'all' | 'overdue' | 'today' | 'tomorrow' | 'next_7' | 'next_14' | 'next_30' | 'none'
+  >('all');
   const [showFilters, setShowFilters] = useState(false);
   const [mergedCells, setMergedCells] = useState<Set<string>>(new Set());
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
@@ -106,15 +109,10 @@ export function MasterTable() {
   const getFilteredTemplates = (channel: string | null, status: string | null) => {
     if (!channel || !status) return [];
     
-    // Get the display label for the status using the same logic as Master Table
-    const statusLabel = getStatusOptionsForChannel(channel as ChannelType)
-      .find(opt => opt.value === status)?.label || 
-      OUTREACH_STATUS_OPTIONS.find(opt => opt.value === status)?.label ||
-      status;
-    
     return messageTemplates.filter(template => {
       const channelMatch = template.channel.toLowerCase() === channel.toLowerCase();
-      const statusMatch = template.status === statusLabel;
+      // Case-insensitive status comparison to handle both 'Requested' and 'requested'
+      const statusMatch = template.status.toLowerCase() === status.toLowerCase();
       const isActive = template.is_active;
       
       return isActive && channelMatch && statusMatch;
@@ -709,6 +707,23 @@ export function MasterTable() {
     return Array.from(new Set(industries)).sort();
   };
 
+  // Date utility helpers for Next Action filtering
+  const startOfDay = (d: Date) => {
+    const dt = new Date(d);
+    dt.setHours(0, 0, 0, 0);
+    return dt;
+  };
+  const endOfDay = (d: Date) => {
+    const dt = new Date(d);
+    dt.setHours(23, 59, 59, 999);
+    return dt;
+  };
+  const addDays = (d: Date, days: number) => {
+    const dt = new Date(d);
+    dt.setDate(dt.getDate() + days);
+    return dt;
+  };
+
   const getFilteredAndSortedRecords = () => {
     let filtered = records.filter(record =>
       Object.values(record).some(value =>
@@ -723,6 +738,51 @@ export function MasterTable() {
         return value?.toString().toLowerCase().includes(filter.value.toLowerCase());
       });
     });
+
+    // Apply Next Action date filter
+    if (selectedNextActionFilter && selectedNextActionFilter !== 'all') {
+      const today = new Date();
+      const todayStart = startOfDay(today);
+      const todayEnd = endOfDay(today);
+      const inRange = (dateStr: string | null | undefined, start: Date, end: Date) => {
+        if (!dateStr) return false;
+        const d = new Date(dateStr);
+        return d >= start && d <= end;
+      };
+      filtered = filtered.filter(record => {
+        const na = record.next_action as string | null | undefined;
+        switch (selectedNextActionFilter) {
+          case 'overdue':
+            return !!na && new Date(na) < todayStart;
+          case 'today':
+            return inRange(na, todayStart, todayEnd);
+          case 'tomorrow': {
+            const tomorrowStart = startOfDay(addDays(today, 1));
+            const tomorrowEnd = endOfDay(addDays(today, 1));
+            return inRange(na, tomorrowStart, tomorrowEnd);
+          }
+          case 'next_7': {
+            const start = addDays(todayStart, 1);
+            const end = endOfDay(addDays(todayStart, 7));
+            return inRange(na, start, end);
+          }
+          case 'next_14': {
+            const start = addDays(todayStart, 1);
+            const end = endOfDay(addDays(todayStart, 14));
+            return inRange(na, start, end);
+          }
+          case 'next_30': {
+            const start = addDays(todayStart, 1);
+            const end = endOfDay(addDays(todayStart, 30));
+            return inRange(na, start, end);
+          }
+          case 'none':
+            return !na;
+          default:
+            return true;
+        }
+      });
+    }
 
     // Apply sorting
     if (sortConfig) {
@@ -809,13 +869,38 @@ export function MasterTable() {
 
       if (error) throw error;
 
-      // Update frontend state
+      // Update frontend state and recompute next actions for each updated row
       const currentDate = new Date().toISOString();
       setRecords(current => current.map(record => 
         selectedRows.has(record.id) 
           ? { ...record, outreach_status: bulkStatusValue, last_action: currentDate }
           : record
       ));
+
+      // Recalculate next_action and next_action_status for each updated record
+      try {
+        const recalculated = await Promise.all(rowsToUpdate.map(async (id) => {
+          const rec = records.find(r => r.id === id);
+          const effectiveChannel = rec?.channel_from || rec?.channel || 'linkedin';
+          const { data: result, error: calcErr } = await (supabase as any).rpc('calculate_next_action', {
+            p_contact_id: id,
+            p_custom_days: null,
+            p_channel: effectiveChannel
+          });
+          if (!calcErr && result && result.length > 0) {
+            return { id, next_action: result[0].next_action_date, next_action_status: result[0].next_action_status };
+          }
+          return { id, next_action: null, next_action_status: null };
+        }));
+        if (recalculated.length > 0) {
+          setRecords(current => current.map(r => {
+            const found = recalculated.find(x => x.id === r.id);
+            return found ? { ...r, next_action: found.next_action, next_action_status: found.next_action_status } : r;
+          }));
+        }
+      } catch (calcErr) {
+        console.warn('Bulk next_action calculation failed (non-blocking):', calcErr);
+      }
       
       setSelectedRows(new Set());
       setBulkStatusValue('');
@@ -867,6 +952,30 @@ export function MasterTable() {
           ? { ...record, channel_from: bulkChannelValue, outreach_status: null as any, lead_stage: null as any, last_action: currentDate }
           : record
       ));
+
+      // Recalculate next_action and next_action_status for each updated record based on the new channel
+      try {
+        const recalculated = await Promise.all(rowsToUpdate.map(async (id) => {
+          const effectiveChannel = bulkChannelValue || records.find(r => r.id === id)?.channel || 'linkedin';
+          const { data: result, error: calcErr } = await (supabase as any).rpc('calculate_next_action', {
+            p_contact_id: id,
+            p_custom_days: null,
+            p_channel: effectiveChannel
+          });
+          if (!calcErr && result && result.length > 0) {
+            return { id, next_action: result[0].next_action_date, next_action_status: result[0].next_action_status };
+          }
+          return { id, next_action: null, next_action_status: null };
+        }));
+        if (recalculated.length > 0) {
+          setRecords(current => current.map(r => {
+            const found = recalculated.find(x => x.id === r.id);
+            return found ? { ...r, next_action: found.next_action, next_action_status: found.next_action_status } : r;
+          }));
+        }
+      } catch (calcErr) {
+        console.warn('Bulk next_action calculation after channel change failed (non-blocking):', calcErr);
+      }
       
       setSelectedRows(new Set());
       setBulkChannelValue('');
@@ -1039,6 +1148,8 @@ export function MasterTable() {
       
       if (bulkStatusValue) updateData.outreach_status = bulkStatusValue;
       if (bulkChannelValue) updateData.channel_from = bulkChannelValue;
+      // Set last_action_date when doing a bulk update
+      updateData.last_action_date = new Date(new Date().getTime() + (5.5 * 60 * 60 * 1000)).toISOString().split('T')[0];
       
       const { error } = await supabase
         .from('master')
@@ -1047,11 +1158,38 @@ export function MasterTable() {
       
       if (error) throw error;
       
+      // Optimistic state update including last_action (ISO)
+      const currentDate = new Date().toISOString();
       setRecords(prev => prev.map(record => 
         selectedRows.has(record.id)
-          ? { ...record, ...updateData }
+          ? { ...record, ...updateData, last_action: currentDate }
           : record
       ));
+
+      // Recalculate next_action and next_action_status for each updated record
+      try {
+        const recalculated = await Promise.all(selectedIds.map(async (id) => {
+          const rec = records.find(r => r.id === id);
+          const effectiveChannel = (bulkChannelValue || rec?.channel_from || rec?.channel || 'linkedin');
+          const { data: result, error: calcErr } = await (supabase as any).rpc('calculate_next_action', {
+            p_contact_id: id,
+            p_custom_days: null,
+            p_channel: effectiveChannel
+          });
+          if (!calcErr && result && result.length > 0) {
+            return { id, next_action: result[0].next_action_date, next_action_status: result[0].next_action_status };
+          }
+          return { id, next_action: null, next_action_status: null };
+        }));
+        if (recalculated.length > 0) {
+          setRecords(current => current.map(r => {
+            const found = recalculated.find(x => x.id === r.id);
+            return found ? { ...r, next_action: found.next_action, next_action_status: found.next_action_status } : r;
+          }));
+        }
+      } catch (calcErr) {
+        console.warn('Bulk update next_action calculation failed (non-blocking):', calcErr);
+      }
       
       toast({
         title: "Rows Updated",
@@ -1433,7 +1571,7 @@ export function MasterTable() {
       {/* Filters Panel */}
       {showFilters && (
         <div className="bg-gray-50 border-t border-gray-200 px-4 py-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-2">Industry</label>
               <Select onValueChange={(value) => handleFilter('industry', value === 'all' ? '' : value)}>
@@ -1518,6 +1656,27 @@ export function MasterTable() {
                 </SelectContent>
               </Select>
             </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-2">Next Action</label>
+              <Select 
+                value={selectedNextActionFilter}
+                onValueChange={(value) => setSelectedNextActionFilter(value as any)}
+              >
+                <SelectTrigger className="text-xs border-gray-300 focus:border-blue-500 bg-white text-gray-500">
+                  <SelectValue placeholder="All next actions" className="text-gray-500" />
+                </SelectTrigger>
+                <SelectContent className="bg-white">
+                  <SelectItem value="all" className="text-gray-900">All next actions</SelectItem>
+                  <SelectItem value="overdue" className="text-gray-900">Overdue</SelectItem>
+                  <SelectItem value="today" className="text-gray-900">Today</SelectItem>
+                  <SelectItem value="tomorrow" className="text-gray-900">Tomorrow</SelectItem>
+                  <SelectItem value="next_7" className="text-gray-900">Next 7 days</SelectItem>
+                  <SelectItem value="next_14" className="text-gray-900">Next 14 days</SelectItem>
+                  <SelectItem value="next_30" className="text-gray-900">Next 30 days</SelectItem>
+                  <SelectItem value="none" className="text-gray-900">No next action</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </div>
       )}
@@ -1526,6 +1685,11 @@ export function MasterTable() {
         <div className="overflow-x-auto">
           <div className="inline-block min-w-full align-middle">
             <div className="overflow-hidden border border-gray-200 rounded-lg">
+              {/* Ensure selected rows render blue across all cells */}
+              <style>{`
+                .selected-row > td { background-color: #DBEAFE !important; }
+                .selected-row:hover > td { background-color: #BFDBFE !important; }
+              `}</style>
               <table className="min-w-full divide-y divide-gray-200 bg-white table-auto">
                 <thead className="bg-gray-50">
                   <tr>
@@ -1612,7 +1776,7 @@ export function MasterTable() {
                         key={record.id} 
                         className={cn(
                           "hover:bg-blue-50 transition-colors cursor-pointer",
-                          selectedRows.has(record.id) && "bg-blue-100",
+                          selectedRows.has(record.id) && "bg-blue-100 selected-row",
                           !selectedRows.has(record.id) && index % 2 === 0 && "bg-gray-50",
                           !selectedRows.has(record.id) && index % 2 === 1 && "bg-white",
                           isDragging && "select-none"
@@ -1694,7 +1858,20 @@ export function MasterTable() {
                           {renderEditableCell(record, 'emp_count_raw', record.emp_count_raw)}
                         </td>
                         <td className={cn("px-2 py-0.5 border-r border-gray-200 text-gray-900")}>
-                          {renderEditableCell(record, 'linkedin_url', record.linkedin_url)}
+                          {record.linkedin_url ? (
+                            <a
+                              href={(record.linkedin_url.startsWith('http') ? record.linkedin_url : `https://${record.linkedin_url}`)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={cn("text-blue-600 hover:underline inline-block max-w-[220px] truncate whitespace-nowrap overflow-hidden text-ellipsis align-middle", getFontSizeClass())}
+                              title={record.linkedin_url}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {record.linkedin_url}
+                            </a>
+                          ) : (
+                            <span className={cn("text-gray-400", getFontSizeClass())}>-</span>
+                          )}
                         </td>
                         <td className={cn("px-2 py-0.5 border-r border-gray-200 text-gray-900")}>
                           <span className={cn("text-gray-700", getFontSizeClass())}>{record.channels || '-'}</span>
@@ -1954,7 +2131,9 @@ export function MasterTable() {
                         
                         // Update database with channel, status, and template
                         const updateData: any = {
-                          message_template_id: template.id
+                          message_template_id: template.id,
+                          // Ensure last action is set during bulk messaging
+                          last_action_date: new Date(new Date().getTime() + (5.5 * 60 * 60 * 1000)).toISOString().split('T')[0]
                         };
                         
                         if (bulkChannelValue) updateData.channel_from = bulkChannelValue;
@@ -1967,12 +2146,38 @@ export function MasterTable() {
 
                         if (error) throw error;
 
-                        // Update local state
+                        // Update local state with last_action and template/channel/status changes
+                        const currentDate = new Date().toISOString();
                         setRecords(prev => prev.map(record => 
                           selectedRows.has(record.id) 
-                            ? { ...record, ...updateData }
+                            ? { ...record, ...updateData, last_action: currentDate }
                             : record
                         ));
+
+                        // Recalculate next_action and next_action_status for each selected record
+                        try {
+                          const recalculated = await Promise.all(selectedIds.map(async (id) => {
+                            const rec = records.find(r => r.id === id);
+                            const effectiveChannel = (bulkChannelValue || rec?.channel_from || rec?.channel || 'linkedin') as ChannelType;
+                            const { data: result, error: calcErr } = await (supabase as any).rpc('calculate_next_action', {
+                              p_contact_id: id,
+                              p_custom_days: null,
+                              p_channel: effectiveChannel
+                            });
+                            if (!calcErr && result && result.length > 0) {
+                              return { id, next_action: result[0].next_action_date, next_action_status: result[0].next_action_status };
+                            }
+                            return { id, next_action: null, next_action_status: null };
+                          }));
+                          if (recalculated.length > 0) {
+                            setRecords(current => current.map(r => {
+                              const found = recalculated.find(x => x.id === r.id);
+                              return found ? { ...r, next_action: found.next_action, next_action_status: found.next_action_status } : r;
+                            }));
+                          }
+                        } catch (calcErr) {
+                          console.warn('Bulk template next_action calculation failed (non-blocking):', calcErr);
+                        }
 
                         toast({
                           title: "Bulk Update Complete",
