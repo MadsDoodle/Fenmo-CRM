@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { getStatusOptionsForChannel, type ChannelType } from "@/lib/status-config";
 
 interface Template {
   id?: string;
@@ -33,7 +34,8 @@ const channelOptions = [
   { value: 'sms', label: 'SMS' }
 ];
 
-const statusOptions = [
+// Template status options that match the database enum
+const templateStatusOptions = [
   { value: 'contacted', label: 'Contacted' },
   { value: 'not_yet', label: 'Not Yet' },
   { value: 'replied', label: 'Replied' },
@@ -52,6 +54,7 @@ export function TemplateForm({ isOpen, onClose, template, onSuccess }: TemplateF
     status: 'contacted'
   });
   const [loading, setLoading] = useState(false);
+  const [availableStatusOptions, setAvailableStatusOptions] = useState(templateStatusOptions);
   const { toast } = useToast();
 
   const isEditing = !!template?.id;
@@ -66,6 +69,8 @@ export function TemplateForm({ isOpen, onClose, template, onSuccess }: TemplateF
         channel: template.channel || 'email',
         status: template.status || 'contacted'
       });
+      // Update available status options based on channel
+      updateStatusOptions(template.channel || 'email');
     } else {
       setFormData({
         name: '',
@@ -74,8 +79,22 @@ export function TemplateForm({ isOpen, onClose, template, onSuccess }: TemplateF
         channel: 'email',
         status: 'contacted'
       });
+      updateStatusOptions('email');
     }
   }, [template]);
+
+  const updateStatusOptions = (channel: string) => {
+    // Use the same logic as master table - get status options for the channel
+    const channelStatusOptions = getStatusOptionsForChannel(channel as ChannelType);
+    
+    // Map the status options to match template form format
+    const mappedOptions = channelStatusOptions.map(option => ({
+      value: option.value,
+      label: option.label
+    }));
+    
+    setAvailableStatusOptions(mappedOptions);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -100,8 +119,7 @@ export function TemplateForm({ isOpen, onClose, template, onSuccess }: TemplateF
             subject: formData.subject?.trim() || null,
             content: formData.content.trim(),
             channel: formData.channel,
-            status: formData.status as any,
-            updated_at: new Date().toISOString()
+            status: formData.status as any
           })
           .eq('id', template!.id);
 
@@ -121,9 +139,7 @@ export function TemplateForm({ isOpen, onClose, template, onSuccess }: TemplateF
             channel: formData.channel,
             status: formData.status as any,
             usage_count: 0,
-            is_active: true,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
+            is_active: true
           });
 
         if (error) throw error;
@@ -153,6 +169,20 @@ export function TemplateForm({ isOpen, onClose, template, onSuccess }: TemplateF
       ...prev,
       [field]: value
     }));
+    
+    // Update status options when channel changes
+    if (field === 'channel') {
+      updateStatusOptions(value);
+      // Reset status to first available option for the new channel
+      const channelStatusOptions = getStatusOptionsForChannel(value as ChannelType);
+      const firstValidStatus = channelStatusOptions.length > 0 ? channelStatusOptions[0].value : 'contacted';
+      
+      setFormData(prev => ({
+        ...prev,
+        [field]: value,
+        status: firstValidStatus
+      }));
+    }
   };
 
   return (
@@ -200,7 +230,7 @@ export function TemplateForm({ isOpen, onClose, template, onSuccess }: TemplateF
                   <SelectValue placeholder="Select stage" />
                 </SelectTrigger>
                 <SelectContent>
-                  {statusOptions.map((option) => (
+                  {availableStatusOptions.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       {option.label}
                     </SelectItem>

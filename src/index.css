@@ -616,5 +616,18 @@ input::placeholder {
     border-radius: 0.375rem !important;
   }
 }
-  
+
+/* Full-bleed utility to break out of centered container */
+.full-bleed {
+  width: 100vw;
+  position: relative;
+  left: 50%;
+  right: 50%;
+  margin-left: -50vw;
+  margin-right: -50vw;
+}
+
+/* Ensure sheets table stretches full width */
+.sheets-table { width: 100%; }
+.sheets-table table { width: 100%; }
 }

@@ -374,3 +374,15 @@ export const isPositiveStatus = (status: OutreachStatus): boolean => {
 export const isClosedStatus = (status: OutreachStatus): boolean => {
   return ['closed_won', 'closed_lost'].includes(status);
 };
+
+// Function to get lead stage options based on channel and status
+export const getLeadStageOptionsForChannelAndStatus = (channelFrom: ChannelType | null, status: OutreachStatus | null): { value: LeadStage; label: string }[] => {
+  // If no channel or status is selected, return all lead stage options
+  if (!channelFrom || !status) {
+    return LEAD_STAGE_OPTIONS;
+  }
+  
+  // For now, return all lead stage options regardless of channel/status
+  // This can be customized later based on specific business logic
+  return LEAD_STAGE_OPTIONS;
+};

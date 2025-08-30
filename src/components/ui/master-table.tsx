@@ -7,11 +7,11 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ChevronUp, ChevronDown, Search, Filter, Download, Upload, Plus, Pencil, Check, X, Eye, Database, RefreshCw, ArrowUpDown, Merge, Split, Trash2, Type } from "lucide-react";
+import { ChevronUp, ChevronDown, Search, Filter, Download, Upload, Plus, Pencil, Check, X, Eye, Database, RefreshCw, ArrowUpDown, Merge, Split, Trash2, Type, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { OUTREACH_STATUS_OPTIONS, LEAD_STAGE_OPTIONS, CHANNEL_FROM_OPTIONS, updateContactStatus, type OutreachStatus, type ChannelType, type LeadStage, getStatusColor, getLeadStageColor, getLeadStageLabel, getStatusOptionsForChannel } from "@/lib/status-config";
+import { OUTREACH_STATUS_OPTIONS, LEAD_STAGE_OPTIONS, CHANNEL_FROM_OPTIONS, updateContactStatus, type OutreachStatus, type ChannelType, type LeadStage, getStatusColor, getLeadStageColor, getLeadStageLabel, getStatusOptionsForChannel, getLeadStageOptionsForChannelAndStatus } from "@/lib/status-config";
 
 interface MasterRecord {
   id: string;
@@ -72,13 +72,16 @@ export function MasterTable() {
   const [editValue, setEditValue] = useState("");
   const [sortConfig, setSortConfig] = useState<SortConfig | null>(null);
   const [filters, setFilters] = useState<FilterConfig[]>([]);
+  const [selectedChannelFilter, setSelectedChannelFilter] = useState<ChannelType | ''>('');
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState<OutreachStatus | ''>('');
   const [showFilters, setShowFilters] = useState(false);
   const [mergedCells, setMergedCells] = useState<Set<string>>(new Set());
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
-  const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>('large');
+  const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>('small');
   const [bulkStatusValue, setBulkStatusValue] = useState<OutreachStatus | ''>('');
   const [bulkChannelValue, setBulkChannelValue] = useState<ChannelType | ''>('');
   const [bulkLeadStageValue, setBulkLeadStageValue] = useState<LeadStage | ''>('');
+  const [showBulkMessageDialog, setShowBulkMessageDialog] = useState(false);
   const [copiedValue, setCopiedValue] = useState<string>('');
   const [isDragging, setIsDragging] = useState(false);
   const [dragStartIndex, setDragStartIndex] = useState<number | null>(null);
@@ -101,33 +104,21 @@ export function MasterTable() {
   }, []);
 
   const getFilteredTemplates = (channel: string | null, status: string | null) => {
-    console.log('Filtering templates with:', { channel, status, channelType: typeof channel, statusType: typeof status });
-    console.log('Available templates:', messageTemplates.map(t => ({ id: t.id, name: t.name, channel: t.channel, status: t.status, is_active: t.is_active })));
+    if (!channel || !status) return [];
     
-    // Normalize the status values - convert underscores to spaces and handle case
-    const normalizeStatus = (statusValue: string | null) => {
-      if (!statusValue) return '';
-      return statusValue.toLowerCase()
-        .replace(/_/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-    };
+    // Get the display label for the status using the same logic as Master Table
+    const statusLabel = getStatusOptionsForChannel(channel as ChannelType)
+      .find(opt => opt.value === status)?.label || 
+      OUTREACH_STATUS_OPTIONS.find(opt => opt.value === status)?.label ||
+      status;
     
-    const normalizedInputStatus = normalizeStatus(status);
-    
-    const filtered = messageTemplates.filter(template => {
-      const channelMatch = template.channel.toLowerCase() === (channel || '').toLowerCase();
-      const normalizedTemplateStatus = normalizeStatus(template.status);
-      const statusMatch = normalizedTemplateStatus === normalizedInputStatus;
+    return messageTemplates.filter(template => {
+      const channelMatch = template.channel.toLowerCase() === channel.toLowerCase();
+      const statusMatch = template.status === statusLabel;
       const isActive = template.is_active;
-      
-      console.log(`Template "${template.name}": channel=${template.channel} (match: ${channelMatch}), status="${template.status}" -> normalized: "${normalizedTemplateStatus}" vs input: "${normalizedInputStatus}" (match: ${statusMatch}), active=${isActive}`);
       
       return isActive && channelMatch && statusMatch;
     });
-    
-    console.log('Filtered templates:', filtered);
-    return filtered;
   };
 
   const handleTemplateSelect = async (recordId: string, templateId: string) => {
@@ -708,6 +699,16 @@ export function MasterTable() {
     };
   }, [selectedRows.size]);
 
+  // Get unique industry values from records
+  const getUniqueIndustries = () => {
+    const industries = records
+      .map(record => record.industry)
+      .filter(industry => industry && industry.trim() !== '')
+      .map(industry => industry!.trim());
+    
+    return Array.from(new Set(industries)).sort();
+  };
+
   const getFilteredAndSortedRecords = () => {
     let filtered = records.filter(record =>
       Object.values(record).some(value =>
@@ -890,20 +891,11 @@ export function MasterTable() {
     navigator.clipboard.writeText(value);
     toast({
       title: "Value Copied",
-      description: `"${value}" copied to clipboard.`,
+      description: `Copied "${value}" to clipboard.`,
     });
   };
 
   const handlePasteValue = async (recordId: string, field: string) => {
-    if (!copiedValue) {
-      toast({
-        title: "Nothing to Paste",
-        description: "No value has been copied yet.",
-        variant: "destructive"
-      });
-      return;
-    }
-
     try {
       const { error } = await supabase
         .from('master')
@@ -977,8 +969,8 @@ export function MasterTable() {
     try {
       // Prepare CSV headers
       const csvHeaders = [
-        'Name', 'Email', 'Company', 'Title', 'Phone', 'Size', 'LinkedIn', 'Sources', 'Channel From', 'Status', 'Priority', 'Lead Stage',
-        'Last Action', 'Next Action Date', 'Next Action Status', 'Industry', 'Location'
+        'Name', 'Email', 'Company', 'Title', 'Phone', 'Size', 'LinkedIn', 'Sources', 'Channel From', 'Status', 'Lead Stage',
+        'Last Action', 'Next Action', 'Next Action Status', 'Industry', 'Location'
       ];
       
       // Prepare CSV data
@@ -993,7 +985,6 @@ export function MasterTable() {
         record.channels || '',
         record.channel_from ? CHANNEL_FROM_OPTIONS.find(opt => opt.value === record.channel_from)?.label || record.channel_from : '',
         record.outreach_status ? (getStatusOptionsForChannel(record.channel_from).find(opt => opt.value === record.outreach_status)?.label || OUTREACH_STATUS_OPTIONS.find(opt => opt.value === record.outreach_status)?.label) : '',
-        record.priority || '',
         record.lead_stage ? getLeadStageLabel(record.lead_stage) : '',
         record.last_action ? new Date(record.last_action).toLocaleDateString('en-GB') : '',
         record.next_action ? new Date(record.next_action).toLocaleDateString('en-GB') : '',
@@ -1032,82 +1023,122 @@ export function MasterTable() {
     }
   };
 
-  const handleAddNewRow = async () => {
-    try {
-      // Generate a unique dedupe_key
-      const dedupeKey = `new_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      
-      // Direct insert with only required fields to avoid type issues
-      const { data, error } = await supabase
-        .from('master')
-        .insert({
-          dedupe_key: dedupeKey,
-          name: 'New Contact'
-        })
-        .select('*')
-        .single();
+  const handleBulkUpdate = async () => {
+    if (selectedRows.size === 0 || (!bulkStatusValue && !bulkChannelValue)) {
+      toast({
+        title: "Invalid Selection",
+        description: "Please select rows and choose at least a status or channel.",
+        variant: "destructive",
+      });
+      return;
+    }
 
-      if (error) {
-        console.error('Insert error:', error);
-        throw error;
-      }
-        
-      // Add new record to existing state instead of reloading
-      const newRecord: MasterRecord = {
-        id: data.id,
-        dedupe_key: data.dedupe_key,
-        linkedin_url: data.linkedin_url || null,
-        email: data.email || null,
-        channel: data.channel || null,
-        channels: (data as any).channels || null,
-        channel_from: (data as any).channel_from || null,
-        company: data.company || null,
-        name: data.name,
-        phone: data.phone || null,
-        website: data.website || null,
-        industry: data.industry || null,
-        emp_count: data.emp_count || null,
-        emp_count_raw: (data as any).emp_count_raw || null,
-        title: data.title || null,
-        location: data.location || null,
-        msg: data.msg || null,
-        last_action: (data as any).last_action_date || null,
-        next_action: (data as any).next_action_date || null,
-        next_action_status: (data as any).next_action_status || null,
-        priority: 'medium' as const,
-        custom_followup_days: null,
-        outreach_status: (data.outreach_status === 'closed' ? 'closed_won' : data.outreach_status || 'not_contacted') as OutreachStatus,
-        lead_stage: ((data as any).lead_stage || null) as LeadStage,
-        message_template_id: (data as any).message_template_id || null,
-        created_at: data.created_at,
-        updated_at: data.updated_at
-      };
+    try {
+      const selectedIds = Array.from(selectedRows);
+      const updateData: any = {};
       
-      setRecords(current => [...current, newRecord]);
+      if (bulkStatusValue) updateData.outreach_status = bulkStatusValue;
+      if (bulkChannelValue) updateData.channel_from = bulkChannelValue;
+      
+      const { error } = await supabase
+        .from('master')
+        .update(updateData)
+        .in('id', selectedIds);
+      
+      if (error) throw error;
+      
+      setRecords(prev => prev.map(record => 
+        selectedRows.has(record.id)
+          ? { ...record, ...updateData }
+          : record
+      ));
       
       toast({
-        title: "New Row Added",
-        description: "A new contact record has been created. Click on any cell to edit.",
+        title: "Rows Updated",
+        description: `Updated ${selectedRows.size} row(s) successfully.`,
       });
       
-      // Find and start editing the new record
-      setTimeout(() => {
-        const newRecord = records.find(r => r.dedupe_key === dedupeKey);
-        if (newRecord) {
-          handleCellEdit(newRecord.id, 'name', 'New Contact');
-        }
-      }, 500);
-
+      setSelectedRows(new Set());
+      setBulkStatusValue(null);
+      setBulkChannelValue(null);
     } catch (error) {
-      console.error('Error adding new row:', error);
-      const errorMsg = error?.message || error?.details || 'Unknown error';
       toast({
-        title: "Failed to Add Row",
-        description: `Could not create a new contact record: ${errorMsg}`,
-        variant: "destructive"
+        title: "Update Failed",
+        description: "Failed to update selected rows.",
+        variant: "destructive",
       });
     }
   };
+
+  const handleAddNewRow = async () => {
+    try {
+      const dedupeKey = `new_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    const { data, error } = await supabase
+      .from('master')
+      .insert({
+        dedupe_key: dedupeKey,
+        name: 'New Contact',
+      })
+      .select('*')
+      .single();
+
+    if (error) throw error;
+
+    const newRecord: MasterRecord = {
+      id: data.id,
+      dedupe_key: data.dedupe_key,
+      linkedin_url: data.linkedin_url || null,
+      email: data.email || null,
+      channel: data.channel || null,
+      channels: (data as any).channels || null,
+      channel_from: (data as any).channel_from || null,
+      company: data.company || null,
+      name: data.name,
+      phone: data.phone || null,
+      website: data.website || null,
+      industry: data.industry || null,
+      emp_count: data.emp_count || null,
+      emp_count_raw: (data as any).emp_count_raw || null,
+      title: data.title || null,
+      location: data.location || null,
+      msg: data.msg || null,
+      last_action: (data as any).last_action_date || null,
+      next_action: (data as any).next_action_date || null,
+      next_action_status: (data as any).next_action_status || null,
+      priority: 'medium' as const,
+      custom_followup_days: null,
+      outreach_status: (data.outreach_status === 'closed' ? 'closed_won' : data.outreach_status || 'not_contacted') as OutreachStatus,
+      lead_stage: ((data as any).lead_stage || null) as LeadStage,
+      message_template_id: (data as any).message_template_id || null,
+      created_at: data.created_at,
+      updated_at: data.updated_at,
+    };
+
+    setRecords(current => [...current, newRecord]);
+
+    toast({
+      title: "New Row Added",
+      description: "A new contact record has been created. Click on any cell to edit.",
+    });
+
+    setTimeout(() => {
+      const created = records.find(r => r.dedupe_key === dedupeKey);
+      if (created) {
+        handleCellEdit(created.id, 'name', 'New Contact');
+      }
+    }, 500);
+
+  } catch (error: any) {
+    console.error('Error adding new row:', error);
+    const errorMsg = error?.message || error?.details || 'Unknown error';
+    toast({
+      title: "Failed to Add Row",
+      description: `Could not create a new contact record: ${errorMsg}`,
+      variant: "destructive",
+    });
+  }
+};
 
 
 
@@ -1247,7 +1278,7 @@ export function MasterTable() {
   );
 
   return (
-    <Card className="sheets-table">
+    <Card className="sheets-table w-full">
       {/* Compact toolbar with search, filters, and add button */}
       <div className="bg-white border-b border-gray-200 px-2 sm:px-4 py-3">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0">
@@ -1320,28 +1351,32 @@ export function MasterTable() {
             </Button>
             {selectedRows.size > 1 && (
               <>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={handleBulkUpdate}
+                  disabled={!bulkStatusValue && !bulkChannelValue}
+                  className="bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  Update ({selectedRows.size})
+                </Button>
                 <div className="flex items-center gap-2">
-                  <Select value={bulkStatusValue} onValueChange={(value) => setBulkStatusValue(value as OutreachStatus)}>
+                  <Select 
+                    value={bulkStatusValue} 
+                    onValueChange={(value) => setBulkStatusValue(value as OutreachStatus)}
+                    disabled={!bulkChannelValue}
+                  >
                     <SelectTrigger className="w-40">
                       <SelectValue placeholder="Bulk Status" />
                     </SelectTrigger>
                     <SelectContent>
-                      {OUTREACH_STATUS_OPTIONS.map((option) => (
+                      {bulkChannelValue && getStatusOptionsForChannel(bulkChannelValue).map((option) => (
                         <SelectItem key={option.value} value={option.value}>
                           {option.label}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    onClick={handleBulkStatusUpdate}
-                    disabled={!bulkStatusValue}
-                    className="bg-blue-600 hover:bg-blue-700 text-white"
-                  >
-                    Update Status ({selectedRows.size})
-                  </Button>
                 </div>
                 <div className="flex items-center gap-2">
                   <Select value={bulkChannelValue} onValueChange={(value) => setBulkChannelValue(value as ChannelType)}>
@@ -1356,16 +1391,17 @@ export function MasterTable() {
                       ))}
                     </SelectContent>
                   </Select>
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    onClick={handleBulkChannelUpdate}
-                    disabled={!bulkChannelValue}
-                    className="bg-green-600 hover:bg-green-700 text-white"
-                  >
-                    Update Channel ({selectedRows.size})
-                  </Button>
                 </div>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => setShowBulkMessageDialog(true)}
+                  disabled={!bulkChannelValue || !bulkStatusValue}
+                  className="bg-purple-600 hover:bg-purple-700 text-white"
+                >
+                  <MessageSquare className="w-4 h-4 mr-2" />
+                  Bulk Message ({selectedRows.size})
+                </Button>
                 <Button 
                   variant="destructive" 
                   size="sm" 
@@ -1399,24 +1435,33 @@ export function MasterTable() {
         <div className="bg-gray-50 border-t border-gray-200 px-4 py-4">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-2">Company</label>
-              <Input
-                placeholder="Filter by company..."
-                onChange={(e) => handleFilter('company', e.target.value)}
-                className="text-xs border-gray-300 focus:border-blue-500 bg-white"
-              />
-            </div>
-            <div>
               <label className="block text-xs font-medium text-gray-700 mb-2">Industry</label>
-              <Input
-                placeholder="Filter by industry..."
-                onChange={(e) => handleFilter('industry', e.target.value)}
-                className="text-xs border-gray-300 focus:border-blue-500 bg-white"
-              />
+              <Select onValueChange={(value) => handleFilter('industry', value === 'all' ? '' : value)}>
+                <SelectTrigger className="text-xs border-gray-300 focus:border-blue-500 bg-white text-gray-500">
+                  <SelectValue placeholder="All industries" className="text-gray-500" />
+                </SelectTrigger>
+                <SelectContent className="bg-white max-h-60 overflow-y-auto">
+                  <SelectItem value="all" className="text-gray-900">All industries</SelectItem>
+                  {getUniqueIndustries().map((industry) => (
+                    <SelectItem key={industry} value={industry} className="text-gray-900">
+                      {industry}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-2">Channel</label>
-              <Select onValueChange={(value) => handleFilter('channel_from', value === 'all' ? '' : value)}>
+              <Select onValueChange={(value) => {
+                const channelValue = value === 'all' ? '' : value as ChannelType;
+                setSelectedChannelFilter(channelValue);
+                handleFilter('channel_from', channelValue);
+                // Reset status filter when channel changes
+                if (channelValue !== selectedChannelFilter) {
+                  setSelectedStatusFilter('');
+                  handleFilter('outreach_status', '');
+                }
+              }}>
                 <SelectTrigger className="text-xs border-gray-300 focus:border-blue-500 bg-white text-gray-500">
                   <SelectValue placeholder="All channels" className="text-gray-500" />
                 </SelectTrigger>
@@ -1432,13 +1477,40 @@ export function MasterTable() {
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-2">Status</label>
-              <Select onValueChange={(value) => handleFilter('outreach_status', value === 'all' ? '' : value)}>
+              <Select 
+                value={selectedStatusFilter} 
+                onValueChange={(value) => {
+                  const statusValue = value === 'all' ? '' : value as OutreachStatus;
+                  setSelectedStatusFilter(statusValue);
+                  handleFilter('outreach_status', statusValue);
+                }}
+                disabled={!selectedChannelFilter}
+              >
                 <SelectTrigger className="text-xs border-gray-300 focus:border-blue-500 bg-white text-gray-500">
-                  <SelectValue placeholder="All statuses" className="text-gray-500" />
+                  <SelectValue placeholder={selectedChannelFilter ? "All statuses" : "Select channel first"} className="text-gray-500" />
                 </SelectTrigger>
                 <SelectContent className="bg-white">
                   <SelectItem value="all" className="text-gray-900">All statuses</SelectItem>
-                  {OUTREACH_STATUS_OPTIONS.map((option) => (
+                  {selectedChannelFilter && getStatusOptionsForChannel(selectedChannelFilter).map((option) => (
+                    <SelectItem key={option.value} value={option.value} className="text-gray-900">
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-2">Lead Stage</label>
+              <Select 
+                onValueChange={(value) => handleFilter('lead_stage', value === 'all' ? '' : value)}
+                disabled={!selectedChannelFilter || !selectedStatusFilter}
+              >
+                <SelectTrigger className="text-xs border-gray-300 focus:border-blue-500 bg-white text-gray-500">
+                  <SelectValue placeholder={selectedChannelFilter && selectedStatusFilter ? "All lead stages" : "Select channel & status first"} className="text-gray-500" />
+                </SelectTrigger>
+                <SelectContent className="bg-white">
+                  <SelectItem value="all" className="text-gray-900">All lead stages</SelectItem>
+                  {selectedChannelFilter && selectedStatusFilter && getLeadStageOptionsForChannelAndStatus(selectedChannelFilter, selectedStatusFilter).map((option) => (
                     <SelectItem key={option.value} value={option.value} className="text-gray-900">
                       {option.label}
                     </SelectItem>
@@ -1457,65 +1529,62 @@ export function MasterTable() {
               <table className="min-w-full divide-y divide-gray-200 bg-white table-auto">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-2 py-1 text-center text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
+                    <th className="px-2 py-0.5 text-center text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
                       <Checkbox 
                         checked={selectedRows.size === filteredRecords.length && filteredRecords.length > 0}
                         onCheckedChange={selectAllRows}
                         className="data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600"
                       />
                     </th>
-                    <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
+                    <th className="px-2 py-0.5 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
                       {renderSortableHeader('name', 'Name')}
                     </th>
-                    <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
+                    <th className="px-2 py-0.5 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
                       {renderSortableHeader('email', 'Email')}
                     </th>
-                    <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
+                    <th className="px-2 py-0.5 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
                       {renderSortableHeader('company', 'Company')}
                     </th>
-                    <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
+                    <th className="px-2 py-0.5 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
                       {renderSortableHeader('title', 'Title')}
                     </th>
-                    <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
+                    <th className="px-2 py-0.5 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
                       {renderSortableHeader('phone', 'Phone')}
                     </th>
-                    <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
+                    <th className="px-2 py-0.5 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
                       {renderSortableHeader('emp_count_raw', 'Size')}
                     </th>
-                    <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
+                    <th className="px-2 py-0.5 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
                       {renderSortableHeader('linkedin_url', 'LinkedIn')}
                     </th>
-                    <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
+                    <th className="px-2 py-0.5 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
                       {renderSortableHeader('channels', 'Sources')}
                     </th>
-                    <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
+                    <th className="px-2 py-0.5 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
                       Channel
                     </th>
-                    <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
+                    <th className="px-2 py-0.5 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
                       Status
                     </th>
-                    <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
-                      Priority
-                    </th>
-                    <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
+                    <th className="px-2 py-0.5 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
                       Lead Stage
                     </th>
-                    <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
+                    <th className="px-2 py-0.5 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
                       {renderSortableHeader('last_action', 'Last Action')}
                     </th>
-                    <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
-                      {renderSortableHeader('next_action', 'Next Action Date')}
+                    <th className="px-2 py-0.5 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
+                      {renderSortableHeader('next_action', 'Next Action')}
                     </th>
-                    <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200 min-w-[180px]">
+                    <th className="px-2 py-0.5 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
                       {renderSortableHeader('next_action_status', 'Next Action Status')}
                     </th>
-                    <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200 min-w-[200px]">
+                    <th className="px-2 py-0.5 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
                       Message Templates
                     </th>
-                    <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
+                    <th className="px-2 py-0.5 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
                       {renderSortableHeader('industry', 'Industry')}
                     </th>
-                    <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
+                    <th className="px-2 py-0.5 text-left text-xs font-medium text-gray-700 uppercase tracking-wider border-r border-gray-200">
                       {renderSortableHeader('location', 'Location')}
                     </th>
                   </tr>
@@ -1523,14 +1592,14 @@ export function MasterTable() {
                 <tbody className="bg-white divide-y divide-gray-200">
                   {loading ? (
                     <tr>
-                      <td colSpan={17} className="px-2 py-4 text-center">
+                      <td colSpan={100} className="px-2 py-4 text-center">
                         <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-gray-400" />
                         <span className="text-gray-500">Loading master data...</span>
                       </td>
                     </tr>
                   ) : filteredRecords.length === 0 ? (
                     <tr>
-                      <td colSpan={16} className="px-2 py-4 text-center text-gray-500">
+                      <td colSpan={100} className="px-2 py-4 text-center text-gray-500">
                         {records.length === 0 
                           ? "No records found. Upload CSV data to get started."
                           : `No records match current filters. Total records: ${records.length}`
@@ -1636,7 +1705,7 @@ export function MasterTable() {
                             onValueChange={(value) => handleChannelFromChange(record.id, value === 'none' ? null : value as ChannelType)}
                           >
                             <SelectTrigger 
-                              className={cn("w-32 h-7 border-2 border-gray-300 bg-white text-gray-900 font-medium", getFontSizeClass())}
+                              className={cn("w-28 h-7 border-2 border-gray-300 bg-white text-gray-900 font-medium", getFontSizeClass())}
                               style={{ backgroundColor: 'white', color: '#111827' }}
                             >
                               <SelectValue placeholder="Select...">
@@ -1672,7 +1741,7 @@ export function MasterTable() {
                               onValueChange={(value) => handleStatusChange(record.id, value as OutreachStatus)}
                             >
                               <SelectTrigger 
-                                className="w-44 h-7 text-xs sheets-status-trigger border-2 border-gray-300 whitespace-nowrap"
+                                className="w-40 h-7 text-xs sheets-status-trigger border-2 border-gray-300 whitespace-nowrap"
                                 style={{
                                   backgroundColor: 'white',
                                   color: '#111827'
@@ -1721,53 +1790,7 @@ export function MasterTable() {
                             <span className={cn("text-gray-500 text-xs", getFontSizeClass())}>NULL</span>
                           )}
                         </td>
-                        <td className="px-2 py-0.5 border-r border-gray-200 text-gray-900">
-                          <Select
-                            value={record.priority}
-                            onValueChange={(value) => handlePriorityChange(record.id, value as 'high' | 'medium' | 'low')}
-                          >
-                            <SelectTrigger 
-                              className="w-20 h-7 text-xs border-2 border-gray-300 bg-white text-gray-900 font-medium"
-                              style={{ backgroundColor: 'white', color: '#111827' }}
-                            >
-                              <SelectValue>
-                                <div className="flex items-center gap-1">
-                                  <span className={cn(
-                                    "w-2 h-2 rounded-full",
-                                    record.priority === 'high' ? 'bg-red-500' : 
-                                    record.priority === 'medium' ? 'bg-orange-500' : 'bg-green-500'
-                                  )} />
-                                  <span className="text-xs font-medium capitalize" style={{ color: '#111827' }}>
-                                    {record.priority}
-                                  </span>
-                                </div>
-                              </SelectValue>
-                            </SelectTrigger>
-                            <SelectContent 
-                              className="bg-white border border-gray-200 shadow-lg"
-                              style={{ backgroundColor: 'white', color: '#111827' }}
-                            >
-                              <SelectItem value="high" className="bg-white text-gray-900 hover:bg-gray-100 focus:bg-gray-100" style={{ backgroundColor: 'white', color: '#111827' }}>
-                                <div className="flex items-center gap-2">
-                                  <span className="w-2 h-2 bg-red-500 rounded-full" />
-                                  <span>High</span>
-                                </div>
-                              </SelectItem>
-                              <SelectItem value="medium" className="bg-white text-gray-900 hover:bg-gray-100 focus:bg-gray-100" style={{ backgroundColor: 'white', color: '#111827' }}>
-                                <div className="flex items-center gap-2">
-                                  <span className="w-2 h-2 bg-orange-500 rounded-full" />
-                                  <span>Medium</span>
-                                </div>
-                              </SelectItem>
-                              <SelectItem value="low" className="bg-white text-gray-900 hover:bg-gray-100 focus:bg-gray-100" style={{ backgroundColor: 'white', color: '#111827' }}>
-                                <div className="flex items-center gap-2">
-                                  <span className="w-2 h-2 bg-green-500 rounded-full" />
-                                  <span>Low</span>
-                                </div>
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </td>
+                        
                         <td className="px-2 py-0.5 border-r border-gray-200 text-gray-900">
                           {record.channel_from && record.outreach_status ? (
                             <Select
@@ -1775,7 +1798,7 @@ export function MasterTable() {
                               onValueChange={(value) => handleLeadStageChange(record.id, value as LeadStage)}
                             >
                               <SelectTrigger 
-                                className="w-44 h-7 text-xs border-2 border-gray-300 bg-white text-gray-900 font-medium"
+                                className="w-40 h-7 text-xs border-2 border-gray-300 bg-white text-gray-900 font-medium"
                                 style={{ backgroundColor: 'white', color: '#111827' }}
                               >
                                 <SelectValue placeholder="Select lead stage...">
@@ -1894,6 +1917,118 @@ export function MasterTable() {
           <span>Ctrl+A to select all</span>
         </div>
       </div>
+
+      {/* Bulk Message Dialog */}
+      {showBulkMessageDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">
+                Select Message Template
+              </h3>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowBulkMessageDialog(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+            
+            <div className="mb-4 p-3 bg-blue-50 rounded-lg">
+              <p className="text-sm text-blue-800">
+                <strong>Channel:</strong> {bulkChannelValue} | <strong>Status:</strong> {bulkStatusValue} | <strong>Selected Rows:</strong> {selectedRows.size}
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              {getFilteredTemplates(bulkChannelValue, bulkStatusValue)
+                .map((template) => (
+                  <div 
+                    key={template.id} 
+                    className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 cursor-pointer transition-colors"
+                    onClick={async () => {
+                      try {
+                        const selectedIds = Array.from(selectedRows);
+                        
+                        // Update database with channel, status, and template
+                        const updateData: any = {
+                          message_template_id: template.id
+                        };
+                        
+                        if (bulkChannelValue) updateData.channel_from = bulkChannelValue;
+                        if (bulkStatusValue) updateData.outreach_status = bulkStatusValue;
+                        
+                        const { error } = await supabase
+                          .from('master')
+                          .update(updateData)
+                          .in('id', selectedIds);
+
+                        if (error) throw error;
+
+                        // Update local state
+                        setRecords(prev => prev.map(record => 
+                          selectedRows.has(record.id) 
+                            ? { ...record, ...updateData }
+                            : record
+                        ));
+
+                        toast({
+                          title: "Bulk Update Complete",
+                          description: `Updated ${selectedRows.size} contacts with template "${template.name}", channel: ${bulkChannelValue}, status: ${bulkStatusValue}`,
+                        });
+                        
+                        setShowBulkMessageDialog(false);
+                        setSelectedRows(new Set());
+                        setBulkChannelValue(null);
+                        setBulkStatusValue(null);
+                      } catch (error) {
+                        console.error('Error assigning template:', error);
+                        toast({
+                          title: "Error",
+                          description: "Failed to assign template. Please try again.",
+                          variant: "destructive",
+                        });
+                      }
+                    }}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="font-medium text-gray-900">{template.name}</h4>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="text-xs">
+                          {template.channel}
+                        </Badge>
+                        <Badge variant="outline" className="text-xs">
+                          {template.status}
+                        </Badge>
+                      </div>
+                    </div>
+                    <p className="text-sm text-gray-600 mb-2">{template.subject}</p>
+                    <p className="text-xs text-gray-500 line-clamp-2">{template.content}</p>
+                  </div>
+                ))}
+              
+              {getFilteredTemplates(bulkChannelValue, bulkStatusValue).length === 0 && (
+                <div className="text-center py-8 text-gray-500">
+                  <MessageSquare className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                  <p>No message templates found for {bulkChannelValue} channel with {bulkStatusValue} status.</p>
+                  <p className="text-sm mt-1">Create templates in the Configurations page.</p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-gray-200">
+              <Button
+                variant="outline"
+                onClick={() => setShowBulkMessageDialog(false)}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </Card>
   );
 }
