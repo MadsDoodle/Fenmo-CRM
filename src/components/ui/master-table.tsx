@@ -1928,8 +1928,19 @@ export function MasterTable() {
                                   {record.outreach_status ? (
                                     <div className="flex items-center gap-2">
                                       <div className={cn("w-2 h-2 rounded-full", getStatusColor(record.outreach_status))} />
-                                      <span className="text-xs text-gray-900 font-medium whitespace-nowrap" style={{ color: '#111827' }}>
-                                        {getStatusOptionsForChannel(record.channel_from).find(opt => opt.value === record.outreach_status)?.label || 
+                                      <span
+                                        className="text-xs text-gray-900 font-medium whitespace-nowrap"
+                                        style={{
+                                          color:
+                                            (
+                                              getStatusOptionsForChannel(record.channel_from).find(opt => opt.value === record.outreach_status)?.label ||
+                                              OUTREACH_STATUS_OPTIONS.find(opt => opt.value === record.outreach_status)?.label
+                                            ) === 'Not Contacted'
+                                              ? '#ffffff'
+                                              : '#111827'
+                                        }}
+                                      >
+                                        {getStatusOptionsForChannel(record.channel_from).find(opt => opt.value === record.outreach_status)?.label ||
                                          OUTREACH_STATUS_OPTIONS.find(opt => opt.value === record.outreach_status)?.label}
                                       </span>
                                     </div>
@@ -1978,16 +1989,19 @@ export function MasterTable() {
                                 className="w-40 h-7 text-xs border-2 border-gray-300 bg-white text-gray-900 font-medium"
                                 style={{ backgroundColor: 'white', color: '#111827' }}
                               >
-                                <SelectValue placeholder="Select lead stage...">
+                                <SelectValue placeholder="">
                                   {record.lead_stage ? (
                                     <div className="flex items-center gap-2">
                                       <div className={cn("w-2 h-2 rounded-full", getLeadStageColor(record.lead_stage))} />
-                                      <span className="text-xs text-gray-900 font-medium" style={{ color: '#111827' }}>
+                                      <span
+                                        className="text-xs text-gray-900 font-medium"
+                                        style={{ color: getLeadStageLabel(record.lead_stage) === 'Cold' ? '#ffffff' : '#111827' }}
+                                      >
                                         {getLeadStageLabel(record.lead_stage)}
                                       </span>
                                     </div>
                                   ) : (
-                                    <span className="text-xs text-gray-500">Select lead stage...</span>
+                                    <span className="text-xs" style={{ color: '#ffffff' }}></span>
                                   )}
                                 </SelectValue>
                               </SelectTrigger>
@@ -2044,10 +2058,13 @@ export function MasterTable() {
                           >
                             <SelectTrigger className="w-full h-7 bg-white border-gray-200 hover:bg-gray-50 text-xs">
                               <SelectValue placeholder="Select template">
-                                {record.message_template_id ? 
-                                  messageTemplates.find(t => t.id === record.message_template_id)?.name || "Select template"
-                                  : "Select template"
-                                }
+                                {record.message_template_id ? (
+                                  <span className="text-xs text-gray-900">
+                                    {messageTemplates.find(t => t.id === record.message_template_id)?.name || 'Select template'}
+                                  </span>
+                                ) : (
+                                  <span className="text-xs" style={{ color: '#ffffff' }}>Select template</span>
+                                )}
                               </SelectValue>
                             </SelectTrigger>
                             <SelectContent className="bg-white border-gray-200 shadow-lg">
